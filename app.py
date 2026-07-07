@@ -31,12 +31,27 @@ def save_db(data):
 
 db = load_db()
 
-# --- DEINE HARTE FLOTTEN-LISTE ---
+# --- DYNAMISCHE STATE-VARIABLEN FÜR NEUE PARAMETER ---
+if "custom_params" not in st.session_state:
+    st.session_state.custom_params = []
+
+# --- BASIS DATEN ---
 CATEGORIES = [
     "SY10U", "SY16C", "SY18U", "SY18C", "SY19E", "SY20C", "SY26U", "SY26C", 
     "SY35U", "SY35C", "SY50U", "SY60U", "SY60C", "SY75C", "SY80U", "SY95C", 
     "SY135C", "SY155U", "SY215C", "SY235C", "SY265C", "SY305C", "SY365H", 
     "SY390H", "SY500H", "SY750H", "SY980H"
+]
+
+BASE_PARAMS = [
+    "Operating weight (kg)", "Engine Power STD (kW)", "Engine Power OPT (kW)",
+    "Engine STD", "Engine OPT", "Cylinder", "Displacement", "STD Bucket Capacity",
+    "Breakout force (kN)", "Swing force (kNm)", "U/min (Swing)", "Traction Force (kN)",
+    "Fuel Tank (l)", "Hydraulik Oil tank (l)", "Hydraulik Oil System (l)", "AdBlue Tank (l)",
+    "Max Cab height", "Max width", "Swing radius", "Ground clearance", "Transport lengths",
+    "Max Digging depth", "Vertical reach", "Standard Stick", "Long Stick", "AUX 1 Flow",
+    "AUX 2 Flow", "Quick coupler line", "Inside Cab (ISO 6396)", "Outside Cab (2000/14/EG)",
+    "STD Speed (kmh)", "OPT Speed (kmh)"
 ]
 
 # --- API KEY HANDLING ---
@@ -50,42 +65,31 @@ else:
 if api_key:
     genai.configure(api_key=api_key)
 
-# --- SIDEBAR: PARAMETER ---
+# --- SIDEBAR: DYNAMISCHE PARAMETER-KONFIGURATION ---
 with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
-    default_params = """Operating weight (kg)
-Engine Power STD (kW)
-Engine Power OPT (kW)
-Engine STD
-Engine OPT
-Cylinder
-Displacement
-STD Bucket Capacity
-Breakout force (kN)
-Swing force (kNm)
-U/min (Swing)
-Traction Force (kN)
-Fuel Tank (l)
-Hydraulik Oil tank (l)
-Hydraulik Oil System (l)
-AdBlue Tank (l)
-Max Cab height
-Max width
-Swing radius
-Ground clearance
-Transport lengths
-Max Digging depth
-Vertical reach
-Standard Stick
-Long Stick
-AUX 1 Flow
-AUX 2 Flow
-Quick coupler line
-Inside Cab (ISO 6396)
-Outside Cab (2000/14/EG)
-STD Speed (kmh)
-OPT Speed (kmh)"""
-    params_input = st.text_area("Target Metrics:", value=default_params, height=400)
-    parameters = [p.strip() for p in params_input.split("\n") if p.strip()]
+    st.markdown("#### ➕ Neue Metrik hinzufügen")
+    new_param_input = st.text_input("Name des Parameters:", placeholder="z.B. Track width (mm)", key="new_param_field")
+    
+    if st.button("Parameter speichern", use_container_width=True):
+        if new_param_input:
+            clean_param = new_param_input.strip()
+            if clean_param not in BASE_PARAMS and clean_param not in st.session_state.custom_params:
+                st.session_state.custom_params.append(clean_param)
+                st.success(f"'{clean_param}' hinzugefügt!")
+                st.rerun()
+                
+    st.markdown("---")
+    st.markdown("#### 🎯 Aktive Scan-Metriken")
+    
+    # Kombiniere Basis-Parameter mit den selbst erstellten
+    all_available_params = BASE_PARAMS + st.session_state.custom_params
+    
+    selected_parameters = st.multiselect(
+        "Ausgewählte Parameter:",
+        options=all_available_params,
+        default=all_available_params, # Standardmäßig sind alle an
+        help="Entferne die Tags, die für den aktuellen Scan nicht benötigt werden."
+    )
 
 with st.sidebar.expander("✨ ACTIVATE AI SUPERPOWERS"):
     use_ampel = st.checkbox("🚦 Threat Level Scoring (🟢/🟡/🔴)")
@@ -140,6 +144,8 @@ with tab_scanner:
     if st.button("🚀 INITIATE RADAR SWEEP & GENERATE MATRIX", type="primary", use_container_width=True):
         if not uploaded_files and not selected_db_machines:
             st.error("ERROR: No targets selected for scanning.")
+        elif not selected_parameters:
+            st.error("ERROR: No scan parameters selected. Please check the sidebar.")
         elif not api_key and uploaded_files:
             st.error("ERROR: API Auth missing.")
         else:
@@ -167,10 +173,11 @@ with tab_scanner:
                     file_bytes = file.read()
                     file_part = {"mime_type": file.type, "data": file_bytes}
                     
+                    # KI Prompt mit dynamischen Parametern!
                     prompt = f"""
                     You are a precise technical data extraction assistant.
                     Focus EXCLUSIVELY on the technical data for the specific model/series: "{current_machine}".
-                    Extract exact values for: {json.dumps(parameters, ensure_ascii=False)}
+                    Extract exact values for: {json.dumps(selected_parameters, ensure_ascii=False)}
                     Requirements:
                     1. Valid JSON object only.
                     2. Exact matching keys.
@@ -257,12 +264,12 @@ with tab_library:
                 if to_delete != "Nichts löschen":
                     del db[to_delete]
                     save_db(db)
-                    st.rerun() # Lädt die Seite sofort neu und räumt die UI auf
+                    st.rerun()
                     
         st.markdown("---")
         
         # --- TABELLEN-ANZEIGE ---
-        if db: # Nochmal prüfen, falls gerade der letzte Datensatz gelöscht wurde
+        if db: 
             db_rows = list(db.values())
             df_lib = pd.DataFrame(db_rows)
             
