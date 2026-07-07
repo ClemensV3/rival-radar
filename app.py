@@ -30,9 +30,15 @@ def save_db(data):
         json.dump(data, f, indent=4)
 
 db = load_db()
-CATEGORIES = ["Small HEX", "Medium HEX", "Large HEX", "WHEX", "WL"]
 
-# --- API KEY HANDLING (Automatischer Abruf aus Secrets) ---
+# --- DYNAMISCHE UNTERKLASSEN (SESSION STATE) ---
+if "custom_cats" not in st.session_state:
+    st.session_state.custom_cats = []
+
+# Kombiniert die Standard-Klassen mit deinen selbst erstellen Klassen
+CATEGORIES = ["Small HEX", "Medium HEX", "Large HEX", "WHEX", "WL"] + st.session_state.custom_cats
+
+# --- API KEY HANDLING ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("🔑 API-Key automatisch geladen!")
@@ -43,7 +49,19 @@ else:
 if api_key:
     genai.configure(api_key=api_key)
 
-# --- SIDEBAR (Deine 32 neuen Parameter) ---
+# --- SIDEBAR: NEUE KLASSEN ERSTELLEN ---
+with st.sidebar.expander("📁 KLASSEN VERWALTEN", expanded=False):
+    st.markdown("#### Eigene Unterklasse erstellen:")
+    new_cat_input = st.text_input("Name der neuen Klasse:", placeholder="z.B. Eigene_Maschine_XYZ", key="new_cat_field")
+    if st.button("➕ Klasse hinzufügen", use_container_width=True):
+        if new_cat_input:
+            clean_cat = new_cat_input.strip()
+            if clean_cat not in st.session_state.custom_cats and clean_cat not in ["Small HEX", "Medium HEX", "Large HEX", "WHEX", "WL"]:
+                st.session_state.custom_cats.append(clean_cat)
+                st.success(f"'{clean_cat}' hinzugefügt!")
+                st.rerun()
+
+# --- SIDEBAR: PARAMETER ---
 with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
     default_params = """Operating weight (kg)
 Engine Power STD (kW)
@@ -84,7 +102,7 @@ with st.sidebar.expander("✨ ACTIVATE AI SUPERPOWERS"):
     use_ampel = st.checkbox("🚦 Threat Level Scoring (🟢/🟡/🔴)")
     use_pitch = st.checkbox("💬 Tactical Elevator Pitch")
 
-# --- DAS REGISTER-SYSTEM (Tabs für Scanner und Bibliothek) ---
+# --- DAS REGISTER-SYSTEM (Tabs) ---
 tab_scanner, tab_library = st.tabs(["📡 Scanner & Live Matrix", "📚 Hangar / Bibliothek"])
 
 # ================= TAB 1: SCANNER =================
