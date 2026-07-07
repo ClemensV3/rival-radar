@@ -6,13 +6,14 @@ import io
 import os
 import re
 import time
+import altair as alt
 
-# 1. Der Tab-Reiter im Browser
+# 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide", page_icon="📡")
 
-# 2. Der moderne, cleane Header
-st.markdown("<h1 style='text-align: center;'>📡 RIVAL-RADAR</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ TACTICAL COMPETITOR INTELLIGENCE SCANNER ]</h4>", unsafe_allow_html=True)
+# 2. Modern Header
+st.markdown("<h1 style='text-align: center;'>📡 RivalRadar</h1>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ AI-POWERED COMPETITOR ANALYSIS FOR SALES ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- DATABASE SETUP ---
@@ -33,7 +34,7 @@ def save_db(data):
 
 db = load_db()
 
-# --- HELPER FÜR DIAGRAMME ---
+# --- HELPER FOR CHARTS ---
 def extract_number(val):
     if isinstance(val, (int, float)):
         return float(val)
@@ -43,11 +44,11 @@ def extract_number(val):
             return float(match.group())
     return None
 
-# --- DYNAMISCHE STATE-VARIABLEN FÜR NEUE PARAMETER ---
+# --- DYNAMIC STATE VARIABLES FOR NEW PARAMETERS ---
 if "custom_params" not in st.session_state:
     st.session_state.custom_params = []
 
-# --- BASIS DATEN ---
+# --- BASE DATA ---
 CATEGORIES = [
     "SY10U", "SY16C", "SY18U", "SY18C", "SY19E", "SY20C", "SY26U", "SY26C", 
     "SY35U", "SY35C", "SY50U", "SY60U", "SY60C", "SY75C", "SY80U", "SY95C", 
@@ -68,82 +69,78 @@ BASE_PARAMS = [
 
 # --- SIDEBAR NAVIGATION & SETTINGS ---
 st.sidebar.markdown("### 🧭 NAVIGATION")
-app_mode = st.sidebar.radio("Gehe zu:", ["📡 Data Scanner", "📚 Hangar / Bibliothek", "⚔️ THE ARENA"])
+app_mode = st.sidebar.radio("Go to:", ["📡 Scanner", "📚 Database", "📊 Product Comparison"])
 st.sidebar.markdown("---")
 
 # --- API KEY HANDLING & DYNAMIC MODEL SELECTOR ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
-    st.sidebar.success("🔑 API-Key geladen!")
+    st.sidebar.success("🔑 API-Key loaded!")
 else:
-    st.sidebar.markdown("### 📡 SYSTEM CONTROL")
-    api_key = st.sidebar.text_input("🔑 Gemini API Key (Manuell)", type="password")
+    st.sidebar.markdown("### ⚙️ SYSTEM SETTINGS")
+    api_key = st.sidebar.text_input("🔑 Gemini API Key (Manual)", type="password")
 
-selected_model_name = "gemini-1.5-flash" # Absoluter Fallback
+selected_model_name = "gemini-1.5-flash"
 if api_key:
     genai.configure(api_key=api_key)
-    st.sidebar.markdown("### 🧠 KI-MOTOR")
+    st.sidebar.markdown("### 🧠 AI MODEL")
     try:
-        # Fragt live bei Google an, welche Modelle für deinen Key existieren!
         available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
         if available_models:
-            # Sucht das beste Flash-Modell als Standard aus der Liste
             default_idx = 0
             for i, m in enumerate(available_models):
                 if "flash" in m:
                     default_idx = i
                     break
-            selected_model_name = st.sidebar.selectbox("Aktives Modell:", available_models, index=default_idx)
-            st.sidebar.caption("Wähle hier ein 'flash' Modell für PDF-Scans.")
-    except Exception as e:
-        selected_model_name = st.sidebar.text_input("Manuelle Modelleingabe:", value="gemini-1.5-flash")
+            selected_model_name = st.sidebar.selectbox("Active Model:", available_models, index=default_idx)
+            st.sidebar.caption("Recommendation: Use a 'flash' model for fast PDF scans.")
+    except Exception:
+        selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-1.5-flash")
 
 st.sidebar.markdown("---")
 
-with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
-    st.markdown("#### ➕ Neue Metrik hinzufügen")
-    new_param_input = st.text_input("Name des Parameters:", placeholder="z.B. Track width (mm)", key="new_param_field")
+with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
+    st.markdown("#### ➕ Add new metric")
+    new_param_input = st.text_input("Parameter name:", placeholder="e.g., Track width (mm)", key="new_param_field")
     
-    if st.button("Parameter speichern", use_container_width=True):
+    if st.button("Save parameter", use_container_width=True):
         if new_param_input:
             clean_param = new_param_input.strip()
             if clean_param not in BASE_PARAMS and clean_param not in st.session_state.custom_params:
                 st.session_state.custom_params.append(clean_param)
-                st.success(f"'{clean_param}' hinzugefügt!")
+                st.success(f"'{clean_param}' added!")
                 st.rerun()
                 
     st.markdown("---")
-    st.markdown("#### 🎯 Aktive Scan-Metriken")
+    st.markdown("#### 🎯 Active Scan Metrics")
     all_available_params = BASE_PARAMS + st.session_state.custom_params
-    selected_parameters = st.multiselect("Ausgewählte Parameter:", options=all_available_params, default=all_available_params)
-
+    selected_parameters = st.multiselect("Selected Parameters:", options=all_available_params, default=all_available_params)
 
 # ================= VIEW 1: SCANNER =================
-if app_mode == "📡 Data Scanner":
-    st.markdown("### 📥 UPLOAD INTERCEPTED DATA")
-    st.info("💡 Der Scanner liest ab sofort nur noch die reinen Fakten aus, um maximale Geschwindigkeit zu garantieren. Die taktische Analyse zündest du in der Arena!")
+if app_mode == "📡 Scanner":
+    st.markdown("### 📥 UPLOAD DATASHEETS")
+    st.info("💡 The scanner extracts pure facts from the PDF. Qualitative AI analysis (strengths/weaknesses) is activated in the 'Product Comparison' tab.")
     
-    uploaded_files = st.file_uploader("Drop competitor blueprints here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
     machine_configs = {}
     if uploaded_files:
         if not api_key:
-            st.error("ACCESS DENIED: Please authenticate with API Key.")
+            st.error("ACCESS DENIED: Please provide an API Key.")
         else:
-            st.success("Files intercepted. Assign target IDs.")
+            st.success("Files detected. Please assign models.")
             for file in uploaded_files:
                 sub_col1, sub_col2 = st.columns(2)
                 with sub_col1:
                     default_name = file.name.rsplit('.', 1)[0]
-                    m_name = st.text_input(f"Target ID:", value=default_name, key=f"name_{file.name}")
+                    m_name = st.text_input(f"Machine Name:", value=default_name, key=f"name_{file.name}")
                 with sub_col2:
-                    m_cat = st.selectbox(f"Baseline Class:", options=CATEGORIES, key=f"cat_{file.name}")
+                    m_cat = st.selectbox(f"Baseline Class (Sany):", options=CATEGORIES, key=f"cat_{file.name}")
                 machine_configs[file.name] = {"name": m_name, "category": m_cat}
 
-    if st.button("🚀 INITIATE FAST DATA SWEEP", type="primary", use_container_width=True):
+    if st.button("🚀 INITIATE AI SCAN (EXTRACT DATA)", type="primary", use_container_width=True):
         if not uploaded_files:
-            st.error("ERROR: No targets selected for scanning.")
+            st.error("ERROR: No files selected for scanning.")
         elif not selected_parameters:
             st.error("ERROR: No scan parameters selected.")
         else:
@@ -156,7 +153,7 @@ if app_mode == "📡 Data Scanner":
                 current_machine = current_config["name"]
                 current_category = current_config["category"]
                 
-                status_text.text(f"Scanning pure data for '{current_machine}' ({current_category})...")
+                status_text.text(f"Scanning data for '{current_machine}' ({current_category})...")
                 
                 file.seek(0)
                 file_bytes = file.read()
@@ -175,7 +172,6 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # Nutzt jetzt exakt das Modell aus dem Dropdown!
                     model = genai.GenerativeModel(selected_model_name)
                     
                     safety_settings = [
@@ -192,7 +188,7 @@ if app_mode == "📡 Data Scanner":
                     )
                     
                     if not response.candidates:
-                        raise Exception("Google Safety Filter hat die Antwort blockiert! Versuch es erneut.")
+                        raise Exception("Google Safety Filter blocked the response! Try again.")
                         
                     raw_text = response.text.strip()
                     if raw_text.startswith("```json"):
@@ -220,9 +216,9 @@ if app_mode == "📡 Data Scanner":
                         
                         countdown_box = st.empty()
                         for i in range(wait_seconds, 0, -1):
-                            countdown_box.error(f"🛑 API-Limit erreicht! Scanner kühlt ab... Bitte warte: {i} Sekunden.")
+                            countdown_box.error(f"🛑 API limit reached! Scanner cooling down... Please wait: {i} seconds.")
                             time.sleep(1)
-                        countdown_box.success("🟢 System ist abgekühlt! Du kannst jetzt wieder auf INITIATE drücken.")
+                        countdown_box.success("🟢 System ready! You can initiate the scan again.")
                         has_error = True
                     else:
                         st.error(f"❌ Scan failed for '{current_machine}'. Error: {error_msg}")
@@ -231,22 +227,22 @@ if app_mode == "📡 Data Scanner":
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
             if not has_error:
-                status_text.text("✅ Data Sweep Completed. Targets stored in Hangar.")
+                status_text.text("✅ Data extraction complete. Machines saved to database.")
                 time.sleep(2)
                 st.rerun()
 
-# ================= VIEW 2: BIBLIOTHEK =================
-elif app_mode == "📚 Hangar / Bibliothek":
-    st.markdown("### 📚 GEHEIMER HANGAR (ALLE MASCHINEN)")
+# ================= VIEW 2: DATABASE =================
+elif app_mode == "📚 Database":
+    st.markdown("### 📚 MACHINE DATABASE")
     if db:
         col_filter, col_delete = st.columns(2)
         with col_filter:
-            lib_filter = st.selectbox("Bibliothek filtern nach Baseline:", ["All"] + CATEGORIES, key="lib_filter_select")
+            lib_filter = st.selectbox("Filter database by Sany Class:", ["All"] + CATEGORIES, key="lib_filter_select")
         with col_delete:
-            delete_options = ["Nichts löschen"] + list(db.keys())
-            to_delete = st.selectbox("🗑️ Fehlerhaften Datensatz löschen:", options=delete_options)
-            if st.button("🧨 DATENSATZ VERNICHTEN", use_container_width=True):
-                if to_delete != "Nichts löschen":
+            delete_options = ["None"] + list(db.keys())
+            to_delete = st.selectbox("🗑️ Remove faulty record:", options=delete_options)
+            if st.button("🧨 DELETE RECORD", use_container_width=True):
+                if to_delete != "None":
                     del db[to_delete]
                     save_db(db)
                     st.rerun()
@@ -256,43 +252,45 @@ elif app_mode == "📚 Hangar / Bibliothek":
         if db: 
             db_rows = list(db.values())
             df_lib = pd.DataFrame(db_rows)
-            cols = ['Machine', 'Category'] + [c for c in df_lib.columns if c not in ['Machine', 'Category']]
+            df_lib = df_lib.rename(columns={'Category': 'Class'})
+            
+            cols = ['Machine', 'Class'] + [c for c in df_lib.columns if c not in ['Machine', 'Class']]
             df_lib = df_lib[cols]
             
             if lib_filter != "All":
-                df_lib = df_lib[df_lib['Category'] == lib_filter]
+                df_lib = df_lib[df_lib['Class'] == lib_filter]
                 
             st.dataframe(df_lib, use_container_width=True)
             
             excel_buffer_lib = io.BytesIO()
             with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
-                df_lib.to_excel(writer, index=False, sheet_name='Gesamte_Bibliothek')
-            st.download_button("📥 HANGAR ALS EXCEL DOWNLOADEN (.xlsx)", excel_buffer_lib.getvalue(), "RivalRadar_Hangar.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                df_lib.to_excel(writer, index=False, sheet_name='Master_Database')
+            st.download_button("📥 DOWNLOAD DATABASE AS EXCEL (.xlsx)", excel_buffer_lib.getvalue(), "RivalRadar_Database.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     else:
-        st.info("Der Hangar ist leer.")
+        st.info("The database is currently empty. Scan datasheets first.")
 
-# ================= VIEW 3: THE ARENA =================
-elif app_mode == "⚔️ THE ARENA":
-    st.markdown("### ⚔️ THE ARENA: HEAD-TO-HEAD BATTLEGROUND")
+# ================= VIEW 3: PRODUCT COMPARISON =================
+elif app_mode == "📊 Product Comparison":
+    st.markdown("### 📊 PRODUCT COMPARISON (COMPETITIVE ANALYSIS)")
     if not db:
-        st.info("Die Arena ist geschlossen. Du musst zuerst Maschinen im Scanner in den Hangar laden!")
+        st.info("No data available yet. Load machines into the database via the scanner first!")
     else:
         db_keys = list(db.keys())
         
         arena_col1, arena_col2 = st.columns(2)
         with arena_col1:
-            baseline_sel = st.selectbox("🟢 Deine Baseline-Maschine (Home):", options=db_keys)
+            baseline_sel = st.selectbox("🟢 Own Product (Sany Baseline):", options=db_keys)
         with arena_col2:
-            competitors_sel = st.multiselect("🔴 Die Gegner (Away):", options=[k for k in db_keys if k != baseline_sel])
+            competitors_sel = st.multiselect("🔴 Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
             
-        st.markdown("#### ✨ ACTIVATE AI SUPERPOWERS")
-        pwr_charts = st.checkbox("📊 Taktische Diagramme generieren (Performance Charts)")
-        pwr_ampel = st.checkbox("🚦 KI Threat Level Scoring (Stärken/Schwächen-Ampel)")
-        pwr_pitch = st.checkbox("💬 KI Tactical Elevator Pitch (Vertriebs-Argumente)")
+        st.markdown("#### ✨ ACTIVATE AI ANALYSES")
+        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Generate bar charts)")
+        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile (Traffic light system)")
+        pwr_pitch = st.checkbox("💬 Sales Arguments (Generate Elevator Pitch)")
         
-        if st.button("⚔️ LET THEM FIGHT (Vergleich zünden)", type="primary", use_container_width=True):
+        if st.button("⚖️ GENERATE COMPARISON", type="primary", use_container_width=True):
             if not competitors_sel:
-                st.warning("Du musst mindestens einen Gegner auswählen, um den Kampf zu starten!")
+                st.warning("Please select at least one competitor model to start the comparison!")
             else:
                 battle_roster = [baseline_sel] + competitors_sel
                 battle_data = [db[k] for k in battle_roster]
@@ -303,12 +301,12 @@ elif app_mode == "⚔️ THE ARENA":
                 df_battle_t = df_battle.set_index("Machine").T
                 
                 st.markdown("---")
-                st.write("### 🗄️ Nackte Daten-Matrix")
+                st.write("### 🗄️ Raw Data Overview")
                 st.dataframe(df_battle_t, use_container_width=True)
                 
                 if pwr_charts:
                     st.markdown("---")
-                    st.write("### 📊 Taktischer Leistungsvergleich")
+                    st.write("### 📊 Visual Performance Comparison")
                     
                     chart_metrics = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)"]
                     
@@ -317,38 +315,44 @@ elif app_mode == "⚔️ THE ARENA":
                     
                     for metric in chart_metrics:
                         if metric in df_battle.columns:
-                            chart_data = {}
+                            chart_data = []
                             for _, row in df_battle.iterrows():
                                 val = extract_number(row.get(metric))
                                 if val is not None:
-                                    chart_data[row['Machine']] = val
+                                    chart_data.append({"Machine": row['Machine'], metric: val})
                             
                             if chart_data:
-                                df_chart = pd.DataFrame(list(chart_data.items()), columns=['Machine', metric]).set_index('Machine')
+                                df_chart = pd.DataFrame(chart_data)
+                                
+                                chart = alt.Chart(df_chart).mark_bar().encode(
+                                    x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
+                                    y=alt.Y(metric, title=None),
+                                    color=alt.Color('Machine', legend=None),
+                                    tooltip=['Machine', metric]
+                                ).properties(height=300, title=metric)
+                                
                                 with chart_cols[col_idx % 2]:
-                                    st.write(f"**{metric}**")
-                                    st.bar_chart(df_chart)
+                                    st.altair_chart(chart, use_container_width=True)
                                 col_idx += 1
 
                 if pwr_ampel or pwr_pitch:
                     st.markdown("---")
-                    st.write("### 🧠 KI Ringrichter-Analyse")
-                    with st.spinner("Die KI analysiert den Kampf..."):
+                    st.write("### 🧠 AI Competitive Analysis")
+                    with st.spinner("The AI is analyzing the data..."):
                         
-                        sys_prompt = f"Du bist ein Chief Strategy Officer für Baumaschinen. Analysiere diesen Vergleich. Deine Baseline/Eigenes Produkt ist '{db[baseline_sel]['Machine']}'. Die Konkurrenten sind: {', '.join([db[k]['Machine'] for k in competitors_sel])}. Hier sind die Daten als JSON: {json.dumps(battle_data)}."
+                        sys_prompt = f"You are a Senior Sales Strategist for construction machinery. Analyze this comparison in English. Our own product (baseline) is '{db[baseline_sel]['Machine']}'. The competitors are: {', '.join([db[k]['Machine'] for k in competitors_sel])}. Here is the data as JSON: {json.dumps(battle_data)}."
                         
                         reqs = []
                         if pwr_ampel:
-                            reqs.append("- Gib eine harte Einschätzung (Threat Level) zu den wichtigsten Parametern (Ampel-System: 🟢 Wir sind besser, 🟡 Gleichstand, 🔴 Konkurrenz ist besser).")
+                            reqs.append("- Provide an objective assessment of the most important parameters compared to the competition (Use the traffic light system: 🟢 We are superior, 🟡 Tie/Similar, 🔴 Competitor is superior).")
                         if pwr_pitch:
-                            reqs.append("- Schreibe einen knackigen 'Tactical Elevator Pitch' für den Vertrieb: Warum gewinnt unsere Baseline-Maschine in diesem Line-Up? Wo sind wir angreifbar?")
+                            reqs.append("- Formulate punchy sales arguments (Elevator Pitch): Why should the customer choose our machine in a direct comparison? Where do sales reps need to be careful in their argumentation?")
                             
-                        sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
+                        sys_prompt += "\n\nRequirements:\n" + "\n".join(reqs)
                         
                         try:
-                            # Nutzt das ausgewählte Modell aus der Seitenleiste
                             model = genai.GenerativeModel(selected_model_name)
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
-                            st.error(f"KI Analyse fehlgeschlagen: {str(e)}")
+                            st.error(f"AI Analysis failed: {str(e)}")
