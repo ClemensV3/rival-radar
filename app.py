@@ -139,7 +139,6 @@ if app_mode == "📡 Data Scanner":
                 
                 status_text.text(f"Scanning pure data for '{current_machine}' ({current_category})...")
                 
-                # BUGFIX 1: Den Lese-Cursor zwingend auf den Start des PDFs setzen
                 file.seek(0)
                 file_bytes = file.read()
                 file_part = {"mime_type": file.type, "data": file_bytes}
@@ -157,10 +156,9 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # BUGFIX 2: Felsenfestes, intelligentes Pro-Modell verwenden
-                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    # FIX: Zurück zum 2.5-flash Modell, das dein Key liebt!
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     
-                    # BUGFIX 3: Google's Safety-Zensor komplett ausschalten!
                     safety_settings = [
                         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
                         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -316,22 +314,4 @@ elif app_mode == "⚔️ THE ARENA":
                 if pwr_ampel or pwr_pitch:
                     st.markdown("---")
                     st.write("### 🧠 KI Ringrichter-Analyse")
-                    with st.spinner("Die KI analysiert den Kampf..."):
-                        
-                        sys_prompt = f"Du bist ein Chief Strategy Officer für Baumaschinen. Analysiere diesen Vergleich. Deine Baseline/Eigenes Produkt ist '{db[baseline_sel]['Machine']}'. Die Konkurrenten sind: {', '.join([db[k]['Machine'] for k in competitors_sel])}. Hier sind die Daten als JSON: {json.dumps(battle_data)}."
-                        
-                        reqs = []
-                        if pwr_ampel:
-                            reqs.append("- Gib eine harte Einschätzung (Threat Level) zu den wichtigsten Parametern (Ampel-System: 🟢 Wir sind besser, 🟡 Gleichstand, 🔴 Konkurrenz ist besser).")
-                        if pwr_pitch:
-                            reqs.append("- Schreibe einen knackigen 'Tactical Elevator Pitch' für den Vertrieb: Warum gewinnt unsere Baseline-Maschine in diesem Line-Up? Wo sind wir angreifbar?")
-                            
-                        sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
-                        
-                        try:
-                            # 1.5-pro für komplexe Textgenerierung bleibt
-                            model = genai.GenerativeModel('gemini-1.5-pro')
-                            response = model.generate_content(sys_prompt)
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"KI Analyse fehlgeschlagen: {str(e)}")
+                    with st.
