@@ -71,7 +71,7 @@ st.sidebar.markdown("### 🧭 NAVIGATION")
 app_mode = st.sidebar.radio("Gehe zu:", ["📡 Data Scanner", "📚 Hangar / Bibliothek", "⚔️ THE ARENA"])
 st.sidebar.markdown("---")
 
-# --- API KEY HANDLING ---
+# --- API KEY HANDLING & DYNAMIC MODEL SELECTOR ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("🔑 API-Key geladen!")
@@ -79,8 +79,27 @@ else:
     st.sidebar.markdown("### 📡 SYSTEM CONTROL")
     api_key = st.sidebar.text_input("🔑 Gemini API Key (Manuell)", type="password")
 
+selected_model_name = "gemini-1.5-flash" # Absoluter Fallback
 if api_key:
     genai.configure(api_key=api_key)
+    st.sidebar.markdown("### 🧠 KI-MOTOR")
+    try:
+        # Fragt live bei Google an, welche Modelle für deinen Key existieren!
+        available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        if available_models:
+            # Sucht das beste Flash-Modell als Standard aus der Liste
+            default_idx = 0
+            for i, m in enumerate(available_models):
+                if "flash" in m:
+                    default_idx = i
+                    break
+            selected_model_name = st.sidebar.selectbox("Aktives Modell:", available_models, index=default_idx)
+            st.sidebar.caption("Wähle hier ein 'flash' Modell für PDF-Scans.")
+    except Exception as e:
+        selected_model_name = st.sidebar.text_input("Manuelle Modelleingabe:", value="gemini-1.5-flash")
+
+st.sidebar.markdown("---")
 
 with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
     st.markdown("#### ➕ Neue Metrik hinzufügen")
@@ -156,8 +175,8 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # FIX: 1.5-flash Motor (Das Arbeitstier mit 1.500 Limits/Tag)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Nutzt jetzt exakt das Modell aus dem Dropdown!
+                    model = genai.GenerativeModel(selected_model_name)
                     
                     safety_settings = [
                         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -327,8 +346,8 @@ elif app_mode == "⚔️ THE ARENA":
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            # FIX: Auch die Arena läuft jetzt komplett und ausfallsicher über 1.5-flash!
-                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            # Nutzt das ausgewählte Modell aus der Seitenleiste
+                            model = genai.GenerativeModel(selected_model_name)
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
