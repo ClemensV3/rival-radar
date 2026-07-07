@@ -237,31 +237,56 @@ with tab_scanner:
 with tab_library:
     st.markdown("### 📚 GEHEIMER HANGAR (ALLE GESCANNTEN MASCHINEN)")
     if db:
-        db_rows = list(db.values())
-        df_lib = pd.DataFrame(db_rows)
+        # --- FILTER & LÖSCH-BEREICH ---
+        col_filter, col_delete = st.columns(2)
         
-        # Sortierung der Spalten
-        cols = ['Machine', 'Category'] + [c for c in df_lib.columns if c not in ['Machine', 'Category']]
-        df_lib = df_lib[cols]
-        
-        # Filter für die Bibliothek
-        lib_filter = st.selectbox("Bibliothek filtern nach Baseline:", ["All"] + CATEGORIES, key="lib_filter_select")
-        if lib_filter != "All":
-            df_lib = df_lib[df_lib['Category'] == lib_filter]
+        with col_filter:
+            lib_filter = st.selectbox("Bibliothek filtern nach Baseline:", ["All"] + CATEGORIES, key="lib_filter_select")
             
-        st.dataframe(df_lib, use_container_width=True)
-        
-        # Master-Download
-        excel_buffer_lib = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
-            df_lib.to_excel(writer, index=False, sheet_name='Gesamte_Bibliothek')
+        with col_delete:
+            delete_options = ["Nichts löschen"] + list(db.keys())
             
-        st.download_button(
-            label="📥 GESAMTE DATENBANK ALS EXCEL DOWNLOADEN (.xlsx)",
-            data=excel_buffer_lib.getvalue(),
-            file_name="RivalRadar_Master_Datenbank.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+            def format_delete_option(opt):
+                if opt == "Nichts löschen":
+                    return "--- Bitte wählen ---"
+                return f"{db[opt]['Machine']} (Baseline: {db[opt].get('Category', 'Unbekannt')})"
+                
+            to_delete = st.selectbox("🗑️ Fehlerhaften Datensatz löschen:", options=delete_options, format_func=format_delete_option)
+            
+            if st.button("🧨 DATENSATZ VERNICHTEN", use_container_width=True):
+                if to_delete != "Nichts löschen":
+                    del db[to_delete]
+                    save_db(db)
+                    st.rerun() # Lädt die Seite sofort neu und räumt die UI auf
+                    
+        st.markdown("---")
+        
+        # --- TABELLEN-ANZEIGE ---
+        if db: # Nochmal prüfen, falls gerade der letzte Datensatz gelöscht wurde
+            db_rows = list(db.values())
+            df_lib = pd.DataFrame(db_rows)
+            
+            # Sortierung der Spalten
+            cols = ['Machine', 'Category'] + [c for c in df_lib.columns if c not in ['Machine', 'Category']]
+            df_lib = df_lib[cols]
+            
+            # Filter anwenden
+            if lib_filter != "All":
+                df_lib = df_lib[df_lib['Category'] == lib_filter]
+                
+            st.dataframe(df_lib, use_container_width=True)
+            
+            # Master-Download
+            excel_buffer_lib = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
+                df_lib.to_excel(writer, index=False, sheet_name='Gesamte_Bibliothek')
+                
+            st.download_button(
+                label="📥 GESAMTE DATENBANK ALS EXCEL DOWNLOADEN (.xlsx)",
+                data=excel_buffer_lib.getvalue(),
+                file_name="RivalRadar_Master_Datenbank.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
     else:
-        st.info("Der Hangar ist noch leer. Scanne zuerst ein Prospekt im ersten Reiter!")
+        st.info("Der Hangar ist leer. Scanne zuerst ein Prospekt im ersten Reiter!")
