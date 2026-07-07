@@ -156,8 +156,8 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # Der bewährte 2.5-flash Motor
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # FIX: 1.5-flash Motor (Das Arbeitstier mit 1.500 Limits/Tag)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     safety_settings = [
                         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -327,8 +327,8 @@ elif app_mode == "⚔️ THE ARENA":
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            # Auch in der Arena fest auf 2.5-flash umgebaut!
-                            model = genai.GenerativeModel('gemini-2.5-flash')
+                            # FIX: Auch die Arena läuft jetzt komplett und ausfallsicher über 1.5-flash!
+                            model = genai.GenerativeModel('gemini-1.5-flash')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
