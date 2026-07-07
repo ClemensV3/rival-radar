@@ -66,10 +66,15 @@ BASE_PARAMS = [
     "STD Speed (kmh)", "OPT Speed (kmh)"
 ]
 
+# --- SIDEBAR NAVIGATION & SETTINGS ---
+st.sidebar.markdown("### 🧭 NAVIGATION")
+app_mode = st.sidebar.radio("Gehe zu:", ["📡 Data Scanner", "📚 Hangar / Bibliothek", "⚔️ THE ARENA"])
+st.sidebar.markdown("---")
+
 # --- API KEY HANDLING ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
-    st.sidebar.success("🔑 API-Key automatisch geladen!")
+    st.sidebar.success("🔑 API-Key geladen!")
 else:
     st.sidebar.markdown("### 📡 SYSTEM CONTROL")
     api_key = st.sidebar.text_input("🔑 Gemini API Key (Manuell)", type="password")
@@ -77,7 +82,6 @@ else:
 if api_key:
     genai.configure(api_key=api_key)
 
-# --- SIDEBAR: DYNAMISCHE PARAMETER-KONFIGURATION ---
 with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
     st.markdown("#### ➕ Neue Metrik hinzufügen")
     new_param_input = st.text_input("Name des Parameters:", placeholder="z.B. Track width (mm)", key="new_param_field")
@@ -95,13 +99,11 @@ with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
     all_available_params = BASE_PARAMS + st.session_state.custom_params
     selected_parameters = st.multiselect("Ausgewählte Parameter:", options=all_available_params, default=all_available_params)
 
-# --- DAS REGISTER-SYSTEM (Tabs) ---
-tab_scanner, tab_library, tab_arena = st.tabs(["📡 Data Scanner", "📚 Hangar / Bibliothek", "⚔️ THE ARENA (Vergleich & KI)"])
 
-# ================= TAB 1: SCANNER =================
-with tab_scanner:
+# ================= VIEW 1: SCANNER =================
+if app_mode == "📡 Data Scanner":
     st.markdown("### 📥 UPLOAD INTERCEPTED DATA")
-    st.info("💡 Der Scanner liest ab sofort nur noch die reinen Fakten aus, um maximale Geschwindigkeit zu garantieren. Die taktische Analyse zündest du im 'Arena'-Reiter!")
+    st.info("💡 Der Scanner liest ab sofort nur noch die reinen Fakten aus, um maximale Geschwindigkeit zu garantieren. Die taktische Analyse zündest du in der Arena!")
     
     uploaded_files = st.file_uploader("Drop competitor blueprints here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
@@ -153,7 +155,8 @@ with tab_scanner:
                 """
                 
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Zurück auf dein funktionierendes 2.5 Modell!
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(
                         contents=[file_part, prompt],
                         generation_config={"response_mime_type": "application/json"}
@@ -190,8 +193,8 @@ with tab_scanner:
             else:
                 st.warning("⚠️ Der Scan wurde wegen eines Fehlers angehalten (siehe rote Box oben).")
 
-# ================= TAB 2: BIBLIOTHEK =================
-with tab_library:
+# ================= VIEW 2: BIBLIOTHEK =================
+elif app_mode == "📚 Hangar / Bibliothek":
     st.markdown("### 📚 GEHEIMER HANGAR (ALLE MASCHINEN)")
     if db:
         col_filter, col_delete = st.columns(2)
@@ -226,8 +229,8 @@ with tab_library:
     else:
         st.info("Der Hangar ist leer.")
 
-# ================= TAB 3: THE ARENA =================
-with tab_arena:
+# ================= VIEW 3: THE ARENA =================
+elif app_mode == "⚔️ THE ARENA":
     st.markdown("### ⚔️ THE ARENA: HEAD-TO-HEAD BATTLEGROUND")
     if not db:
         st.info("Die Arena ist geschlossen. Du musst zuerst Maschinen im Scanner in den Hangar laden!")
@@ -301,7 +304,8 @@ with tab_arena:
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            # Auch hier zurück auf 2.5!
+                            model = genai.GenerativeModel('gemini-2.5-pro')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
