@@ -31,12 +31,13 @@ def save_db(data):
 
 db = load_db()
 
-# --- DYNAMISCHE UNTERKLASSEN (SESSION STATE) ---
-if "custom_cats" not in st.session_state:
-    st.session_state.custom_cats = []
-
-# Kombiniert die Standard-Klassen mit deinen selbst erstellen Klassen
-CATEGORIES = ["Small HEX", "Medium HEX", "Large HEX", "WHEX", "WL"] + st.session_state.custom_cats
+# --- DEINE HARTE FLOTTEN-LISTE ---
+CATEGORIES = [
+    "SY10U", "SY16C", "SY18U", "SY18C", "SY19E", "SY20C", "SY26U", "SY26C", 
+    "SY35U", "SY35C", "SY50U", "SY60U", "SY60C", "SY75C", "SY80U", "SY95C", 
+    "SY135C", "SY155U", "SY215C", "SY235C", "SY265C", "SY305C", "SY365H", 
+    "SY390H", "SY500H", "SY750H", "SY980H"
+]
 
 # --- API KEY HANDLING ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
@@ -48,18 +49,6 @@ else:
 
 if api_key:
     genai.configure(api_key=api_key)
-
-# --- SIDEBAR: NEUE KLASSEN ERSTELLEN ---
-with st.sidebar.expander("📁 KLASSEN VERWALTEN", expanded=False):
-    st.markdown("#### Eigene Unterklasse erstellen:")
-    new_cat_input = st.text_input("Name der neuen Klasse:", placeholder="z.B. Eigene_Maschine_XYZ", key="new_cat_field")
-    if st.button("➕ Klasse hinzufügen", use_container_width=True):
-        if new_cat_input:
-            clean_cat = new_cat_input.strip()
-            if clean_cat not in st.session_state.custom_cats and clean_cat not in ["Small HEX", "Medium HEX", "Large HEX", "WHEX", "WL"]:
-                st.session_state.custom_cats.append(clean_cat)
-                st.success(f"'{clean_cat}' hinzugefügt!")
-                st.rerun()
 
 # --- SIDEBAR: PARAMETER ---
 with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
@@ -125,14 +114,14 @@ with tab_scanner:
                         default_name = file.name.rsplit('.', 1)[0]
                         m_name = st.text_input(f"Target ID:", value=default_name, key=f"name_{file.name}")
                     with sub_col2:
-                        m_cat = st.selectbox(f"Class:", options=CATEGORIES, key=f"cat_{file.name}")
+                        m_cat = st.selectbox(f"Baseline Class:", options=CATEGORIES, key=f"cat_{file.name}")
                     machine_configs[file.name] = {"name": m_name, "category": m_cat}
 
     with col2:
         st.markdown("### 🗄️ [2] ACCESS RADAR DATABASE")
         selected_db_machines = []
         if db:
-            filter_cat = st.selectbox("Filter Database by Class:", ["All"] + CATEGORIES)
+            filter_cat = st.selectbox("Filter Database by Baseline:", ["All"] + CATEGORIES)
             available_machines = []
             for m_id, m_data in db.items():
                 if filter_cat == "All" or m_data.get("Category") == filter_cat:
@@ -251,18 +240,18 @@ with tab_library:
         db_rows = list(db.values())
         df_lib = pd.DataFrame(db_rows)
         
-        # Sortierung der Spalten (Name und Klasse nach ganz links)
+        # Sortierung der Spalten
         cols = ['Machine', 'Category'] + [c for c in df_lib.columns if c not in ['Machine', 'Category']]
         df_lib = df_lib[cols]
         
         # Filter für die Bibliothek
-        lib_filter = st.selectbox("Bibliothek filtern nach Klasse:", ["All"] + CATEGORIES, key="lib_filter_select")
+        lib_filter = st.selectbox("Bibliothek filtern nach Baseline:", ["All"] + CATEGORIES, key="lib_filter_select")
         if lib_filter != "All":
             df_lib = df_lib[df_lib['Category'] == lib_filter]
             
         st.dataframe(df_lib, use_container_width=True)
         
-        # Master-Download der gesamten Datenbank
+        # Master-Download
         excel_buffer_lib = io.BytesIO()
         with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
             df_lib.to_excel(writer, index=False, sheet_name='Gesamte_Bibliothek')
