@@ -106,7 +106,7 @@ tab_scanner, tab_library, tab_arena = st.tabs(["📡 Data Scanner", "📚 Hangar
 # ================= TAB 1: SCANNER =================
 with tab_scanner:
     st.markdown("### 📥 UPLOAD INTERCEPTED DATA")
-    st.info("💡 Der Scanner liest ab sofort nur noch die reinen Fakten aus, um maximale Geschwindigkeit zu garantieren. Die taktische Analyse (Superpowers) zündest du im 'Arena'-Reiter!")
+    st.info("💡 Der Scanner liest ab sofort nur noch die reinen Fakten aus, um maximale Geschwindigkeit zu garantieren. Die taktische Analyse zündest du im 'Arena'-Reiter!")
     
     uploaded_files = st.file_uploader("Drop competitor blueprints here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
@@ -153,17 +153,29 @@ with tab_scanner:
                 2. Exact matching keys.
                 3. Use "?" if missing.
                 4. UNIT CONVERSION: Convert imperial to metric (kW, kg, liters, mm). No imperial units.
-                Respond ONLY with raw JSON.
+                Respond ONLY with raw JSON format.
                 """
                 
                 try:
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # Fix 1: Wir nutzen das extrem stabile 1.5-flash Modell
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(
                         contents=[file_part, prompt],
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    extracted_json = json.loads(response.text)
+                    # Fix 2: Der "Staubsauger", falls die KI Markdown mitgibt
+                    raw_text = response.text.strip()
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text[7:]
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text[3:]
+                    if raw_text.endswith("```"):
+                        raw_text = raw_text[:-3]
+                        
+                    raw_text = raw_text.strip()
+                    extracted_json = json.loads(raw_text)
+                    
                     extracted_json["Machine"] = current_machine
                     extracted_json["Category"] = current_category
                     
@@ -172,7 +184,7 @@ with tab_scanner:
                     save_db(db)
                     
                 except Exception as e:
-                    st.error(f"❌ Scan failed for '{current_machine}': {str(e)}")
+                    st.error(f"❌ Scan failed for '{current_machine}'. Grund: {str(e)}")
                 
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
@@ -256,7 +268,6 @@ with tab_arena:
                     st.markdown("---")
                     st.write("### 📊 Taktischer Leistungsvergleich")
                     
-                    # Suche nach sinnvollen numerischen Metriken für die Graphen
                     chart_metrics = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)"]
                     
                     chart_cols = st.columns(2)
@@ -264,7 +275,6 @@ with tab_arena:
                     
                     for metric in chart_metrics:
                         if metric in df_battle.columns:
-                            # Daten für Chart aufbereiten
                             chart_data = {}
                             for _, row in df_battle.iterrows():
                                 val = extract_number(row.get(metric))
@@ -295,8 +305,9 @@ with tab_arena:
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
+                            # Für die komplexe Text-Analyse nehmen wir das smarte "Pro" Modell
                             model = genai.GenerativeModel('gemini-1.5-pro')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
-                            st.error(f"KI Analyse fehlgeschlagen: {e}")
+                            st.error(f"KI Analyse fehlgeschlagen: {str(e)}")
