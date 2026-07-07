@@ -139,6 +139,8 @@ if app_mode == "📡 Data Scanner":
                 
                 status_text.text(f"Scanning pure data for '{current_machine}' ({current_category})...")
                 
+                # BUGFIX 1: Den Lese-Cursor zwingend auf den Start des PDFs setzen
+                file.seek(0)
                 file_bytes = file.read()
                 file_part = {"mime_type": file.type, "data": file_bytes}
                 
@@ -155,12 +157,26 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # BUGFIX 2: Felsenfestes, intelligentes Pro-Modell verwenden
+                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    
+                    # BUGFIX 3: Google's Safety-Zensor komplett ausschalten!
+                    safety_settings = [
+                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
+                    ]
+                    
                     response = model.generate_content(
                         contents=[file_part, prompt],
-                        generation_config={"response_mime_type": "application/json"}
+                        generation_config={"response_mime_type": "application/json"},
+                        safety_settings=safety_settings
                     )
                     
+                    if not response.candidates:
+                        raise Exception("Google Safety Filter hat die Antwort blockiert! Versuch es erneut.")
+                        
                     raw_text = response.text.strip()
                     if raw_text.startswith("```json"):
                         raw_text = raw_text[7:]
@@ -182,14 +198,13 @@ if app_mode == "📡 Data Scanner":
                 except Exception as e:
                     error_msg = str(e)
                     if "429" in error_msg:
-                        # Extrahiert die geforderten Sekunden von Google und packt 2 Sekunden Sicherheitspuffer drauf
                         match = re.search(r"seconds:\s*(\d+)", error_msg)
                         wait_seconds = int(match.group(1)) + 2 if match else 45
                         
                         countdown_box = st.empty()
                         for i in range(wait_seconds, 0, -1):
                             countdown_box.error(f"🛑 API-Limit erreicht! Scanner kühlt ab... Bitte warte: {i} Sekunden.")
-                            time.sleep(1) # Zählt live runter
+                            time.sleep(1)
                         countdown_box.success("🟢 System ist abgekühlt! Du kannst jetzt wieder auf INITIATE drücken.")
                         has_error = True
                     else:
@@ -314,7 +329,8 @@ elif app_mode == "⚔️ THE ARENA":
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            model = genai.GenerativeModel('gemini-2.5-pro')
+                            # 1.5-pro für komplexe Textgenerierung bleibt
+                            model = genai.GenerativeModel('gemini-1.5-pro')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
                         except Exception as e:
