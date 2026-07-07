@@ -155,7 +155,6 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # Zurück auf dein funktionierendes 2.5 Modell!
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(
                         contents=[file_part, prompt],
@@ -181,8 +180,21 @@ if app_mode == "📡 Data Scanner":
                     save_db(db)
                     
                 except Exception as e:
-                    st.error(f"❌ Scan failed for '{current_machine}'. Error: {str(e)}")
-                    has_error = True
+                    error_msg = str(e)
+                    if "429" in error_msg:
+                        # Extrahiert die geforderten Sekunden von Google und packt 2 Sekunden Sicherheitspuffer drauf
+                        match = re.search(r"seconds:\s*(\d+)", error_msg)
+                        wait_seconds = int(match.group(1)) + 2 if match else 45
+                        
+                        countdown_box = st.empty()
+                        for i in range(wait_seconds, 0, -1):
+                            countdown_box.error(f"🛑 API-Limit erreicht! Scanner kühlt ab... Bitte warte: {i} Sekunden.")
+                            time.sleep(1) # Zählt live runter
+                        countdown_box.success("🟢 System ist abgekühlt! Du kannst jetzt wieder auf INITIATE drücken.")
+                        has_error = True
+                    else:
+                        st.error(f"❌ Scan failed for '{current_machine}'. Error: {error_msg}")
+                        has_error = True
                 
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
@@ -190,8 +202,6 @@ if app_mode == "📡 Data Scanner":
                 status_text.text("✅ Data Sweep Completed. Targets stored in Hangar.")
                 time.sleep(2)
                 st.rerun()
-            else:
-                st.warning("⚠️ Der Scan wurde wegen eines Fehlers angehalten (siehe rote Box oben).")
 
 # ================= VIEW 2: BIBLIOTHEK =================
 elif app_mode == "📚 Hangar / Bibliothek":
@@ -304,7 +314,6 @@ elif app_mode == "⚔️ THE ARENA":
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            # Auch hier zurück auf 2.5!
                             model = genai.GenerativeModel('gemini-2.5-pro')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
