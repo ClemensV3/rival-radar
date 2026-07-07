@@ -156,7 +156,7 @@ if app_mode == "📡 Data Scanner":
                 """
                 
                 try:
-                    # FIX: Zurück zum 2.5-flash Modell, das dein Key liebt!
+                    # Der bewährte 2.5-flash Motor
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     safety_settings = [
@@ -314,4 +314,22 @@ elif app_mode == "⚔️ THE ARENA":
                 if pwr_ampel or pwr_pitch:
                     st.markdown("---")
                     st.write("### 🧠 KI Ringrichter-Analyse")
-                    with st.
+                    with st.spinner("Die KI analysiert den Kampf..."):
+                        
+                        sys_prompt = f"Du bist ein Chief Strategy Officer für Baumaschinen. Analysiere diesen Vergleich. Deine Baseline/Eigenes Produkt ist '{db[baseline_sel]['Machine']}'. Die Konkurrenten sind: {', '.join([db[k]['Machine'] for k in competitors_sel])}. Hier sind die Daten als JSON: {json.dumps(battle_data)}."
+                        
+                        reqs = []
+                        if pwr_ampel:
+                            reqs.append("- Gib eine harte Einschätzung (Threat Level) zu den wichtigsten Parametern (Ampel-System: 🟢 Wir sind besser, 🟡 Gleichstand, 🔴 Konkurrenz ist besser).")
+                        if pwr_pitch:
+                            reqs.append("- Schreibe einen knackigen 'Tactical Elevator Pitch' für den Vertrieb: Warum gewinnt unsere Baseline-Maschine in diesem Line-Up? Wo sind wir angreifbar?")
+                            
+                        sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
+                        
+                        try:
+                            # Auch in der Arena fest auf 2.5-flash umgebaut!
+                            model = genai.GenerativeModel('gemini-2.5-flash')
+                            response = model.generate_content(sys_prompt)
+                            st.markdown(response.text)
+                        except Exception as e:
+                            st.error(f"KI Analyse fehlgeschlagen: {str(e)}")
