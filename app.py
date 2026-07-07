@@ -5,6 +5,7 @@ import json
 import io
 import os
 import re
+import time
 
 # 1. Der Tab-Reiter im Browser
 st.set_page_config(page_title="RivalRadar", layout="wide", page_icon="📡")
@@ -34,7 +35,6 @@ db = load_db()
 
 # --- HELPER FÜR DIAGRAMME ---
 def extract_number(val):
-    """Zieht die nackte Zahl aus Strings wie '75 kW' oder '10320 kg' für die Diagramme"""
     if isinstance(val, (int, float)):
         return float(val)
     if isinstance(val, str):
@@ -72,7 +72,7 @@ if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     st.sidebar.success("🔑 API-Key automatisch geladen!")
 else:
     st.sidebar.markdown("### 📡 SYSTEM CONTROL")
-    api_key = st.sidebar.text_input("🔑 Gemini API Key (Manuell)", type="password", help="Insert credentials to unlock scanning")
+    api_key = st.sidebar.text_input("🔑 Gemini API Key (Manuell)", type="password")
 
 if api_key:
     genai.configure(api_key=api_key)
@@ -93,12 +93,7 @@ with st.sidebar.expander("⚙️ CONFIGURE SCAN PARAMETERS", expanded=False):
     st.markdown("---")
     st.markdown("#### 🎯 Aktive Scan-Metriken")
     all_available_params = BASE_PARAMS + st.session_state.custom_params
-    selected_parameters = st.multiselect(
-        "Ausgewählte Parameter:",
-        options=all_available_params,
-        default=all_available_params,
-        help="Entferne die Tags, die für den reinen Daten-Scan nicht benötigt werden."
-    )
+    selected_parameters = st.multiselect("Ausgewählte Parameter:", options=all_available_params, default=all_available_params)
 
 # --- DAS REGISTER-SYSTEM (Tabs) ---
 tab_scanner, tab_library, tab_arena = st.tabs(["📡 Data Scanner", "📚 Hangar / Bibliothek", "⚔️ THE ARENA (Vergleich & KI)"])
@@ -133,6 +128,7 @@ with tab_scanner:
         else:
             progress_bar = st.progress(0)
             status_text = st.empty()
+            has_error = False
             
             for index, file in enumerate(uploaded_files):
                 current_config = machine_configs[file.name]
@@ -157,14 +153,12 @@ with tab_scanner:
                 """
                 
                 try:
-                    # Fix 1: Wir nutzen das extrem stabile 1.5-flash Modell
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(
                         contents=[file_part, prompt],
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    # Fix 2: Der "Staubsauger", falls die KI Markdown mitgibt
                     raw_text = response.text.strip()
                     if raw_text.startswith("```json"):
                         raw_text = raw_text[7:]
@@ -184,12 +178,17 @@ with tab_scanner:
                     save_db(db)
                     
                 except Exception as e:
-                    st.error(f"❌ Scan failed for '{current_machine}'. Grund: {str(e)}")
+                    st.error(f"❌ Scan failed for '{current_machine}'. Error: {str(e)}")
+                    has_error = True
                 
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
-            status_text.text("✅ Data Sweep Completed. Targets stored in Hangar.")
-            st.rerun()
+            if not has_error:
+                status_text.text("✅ Data Sweep Completed. Targets stored in Hangar.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.warning("⚠️ Der Scan wurde wegen eines Fehlers angehalten (siehe rote Box oben).")
 
 # ================= TAB 2: BIBLIOTHEK =================
 with tab_library:
@@ -253,7 +252,6 @@ with tab_arena:
                 battle_roster = [baseline_sel] + competitors_sel
                 battle_data = [db[k] for k in battle_roster]
                 
-                # Nackte Fakten Matrix
                 df_battle = pd.DataFrame(battle_data)
                 if 'Category' in df_battle.columns:
                     df_battle = df_battle.drop(columns=['Category'])
@@ -263,7 +261,6 @@ with tab_arena:
                 st.write("### 🗄️ Nackte Daten-Matrix")
                 st.dataframe(df_battle_t, use_container_width=True)
                 
-                # --- SUPERPOWER 1: DIAGRAMME ---
                 if pwr_charts:
                     st.markdown("---")
                     st.write("### 📊 Taktischer Leistungsvergleich")
@@ -288,7 +285,6 @@ with tab_arena:
                                     st.bar_chart(df_chart)
                                 col_idx += 1
 
-                # --- SUPERPOWER 2 & 3: KI REFEREE ---
                 if pwr_ampel or pwr_pitch:
                     st.markdown("---")
                     st.write("### 🧠 KI Ringrichter-Analyse")
@@ -305,7 +301,6 @@ with tab_arena:
                         sys_prompt += "\n\nAnforderungen:\n" + "\n".join(reqs)
                         
                         try:
-                            # Für die komplexe Text-Analyse nehmen wir das smarte "Pro" Modell
                             model = genai.GenerativeModel('gemini-1.5-pro')
                             response = model.generate_content(sys_prompt)
                             st.markdown(response.text)
