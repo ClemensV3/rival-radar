@@ -12,11 +12,11 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 
 # 1. Page Configuration
-st.set_page_config(page_title="RivalRadar", layout="wide", page_icon="📡")
+st.set_page_config(page_title="RivalRadar", layout="wide")
 
-# 2. Modern Header
-st.markdown("<h1 style='text-align: center;'>📡 RivalRadar</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ AI-POWERED COMPETITOR ANALYSIS FOR SALES ]</h4>", unsafe_allow_html=True)
+# 2. Modern Header (Cleaned up, bigger Radar, updated Subtitle)
+st.markdown("<h1 style='text-align: center;'><span style='font-size: 1.3em;'>📡</span> RivalRadar</h1>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ AI-POWERED COMPETITOR ANALYSIS SYSTEM ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- DATABASE SETUP & GITHUB SYNC ---
@@ -43,9 +43,9 @@ def save_db(data):
             json_str = json.dumps(data, indent=4)
             try:
                 contents = repo.get_contents(DB_FILE)
-                repo.update_file(contents.path, "🤖 Auto-Sync: Database updated", json_str, contents.sha)
+                repo.update_file(contents.path, "Auto-Sync: Database updated", json_str, contents.sha)
             except:
-                repo.create_file(DB_FILE, "🤖 Auto-Sync: Database created", json_str)
+                repo.create_file(DB_FILE, "Auto-Sync: Database created", json_str)
         except Exception as e:
             print(f"GitHub Sync Error: {e}")
 
@@ -74,14 +74,14 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     
     if not template_path:
-        st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden!")
+        st.error("CRITICAL ERROR: SANY Template (.pptx) not found on server! Creating blank fallback deck.")
         prs = Presentation() 
     else:
         try:
             prs = Presentation(template_path)
-            st.success(f"✅ Template gefunden: {template_path}")
+            st.success(f"Template successfully loaded from: {template_path}")
         except Exception as e:
-            st.error(f"🚨 Fehler beim Laden des Templates '{template_path}': {e}")
+            st.error(f"Error loading template '{template_path}': {e}")
             prs = Presentation()
         
     # --- FOLIE 1: TITEL (Platzhalter "XXX") ---
@@ -274,59 +274,61 @@ BASE_PARAMS = [
 ]
 
 # --- SIDEBAR ---
-st.sidebar.markdown("### 🧭 NAVIGATION")
-app_mode = st.sidebar.radio("Go to:", ["📡 Scanner", "📚 Database", "📊 Product Comparison"])
+st.sidebar.markdown("### NAVIGATION")
+app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison"])
 st.sidebar.markdown("---")
 
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
-    st.sidebar.success("🔑 API-Key loaded!")
+    st.sidebar.success("API-Key loaded successfully.")
 else:
-    st.sidebar.markdown("### ⚙️ SYSTEM SETTINGS")
-    api_key = st.sidebar.text_input("🔑 Gemini API Key (Manual)", type="password")
+    st.sidebar.markdown("### SYSTEM SETTINGS")
+    api_key = st.sidebar.text_input("Gemini API Key (Manual)", type="password")
 
-selected_model_name = "gemini-1.5-flash"
+selected_model_name = "gemini-3.1-flash-lite"
 if api_key:
     genai.configure(api_key=api_key)
-    st.sidebar.markdown("### 🧠 AI MODEL")
+    st.sidebar.markdown("### AI MODEL")
     try:
         available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if available_models:
             default_idx = 0
             for i, m in enumerate(available_models):
-                if "flash" in m:
+                if "gemini-3.1-flash-lite" in m:
                     default_idx = i
                     break
+                elif "flash" in m and default_idx == 0:
+                    default_idx = i
             selected_model_name = st.sidebar.selectbox("Active Model:", available_models, index=default_idx)
     except Exception:
-        selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-1.5-flash")
+        selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-3.1-flash-lite")
 
 st.sidebar.markdown("---")
 
-with st.sidebar.expander("⚙️ CONFIGURE DATABASE PARAMS", expanded=False):
-    st.info("Diese Parameter kennt das System. Der Scanner extrahiert im Hintergrund automatisch IMMER alle hier bekannten Metriken.")
-    new_param_input = st.text_input("Parameter name:", placeholder="e.g., Track width (mm)", key="new_param_field")
-    if st.button("Save parameter", use_container_width=True):
+with st.sidebar.expander("CONFIGURE DATABASE PARAMS", expanded=False):
+    st.info("The system recognizes these parameters. The scanner automatically extracts all known metrics in the background.")
+    new_param_input = st.text_input("Parameter Name:", placeholder="e.g., Track width (mm)", key="new_param_field")
+    if st.button("Save Parameter", use_container_width=True):
         if new_param_input:
             clean_param = new_param_input.strip()
             if clean_param not in BASE_PARAMS and clean_param not in st.session_state.custom_params:
                 st.session_state.custom_params.append(clean_param)
-                st.success(f"'{clean_param}' added!")
+                st.success(f"'{clean_param}' added successfully.")
                 st.rerun()
                 
 all_available_params = BASE_PARAMS + st.session_state.custom_params
 
 # ================= VIEW 1: SCANNER =================
-if app_mode == "📡 Scanner":
-    st.markdown("### 📥 UPLOAD DATASHEETS")
-    st.info("Der Scanner extrahiert vollautomatisch alle bekannten Metriken aus der PDF. Welche Parameter du vergleichen willst, wählst du im 'Product Comparison' Tab.")
+if app_mode == "Scanner":
+    st.markdown("### UPLOAD DATASHEETS")
+    st.info("The AI scanner automatically extracts all known metrics from the provided documents. You can select specific parameters to compare in the 'Product Comparison' tab.")
     
     uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
     machine_configs = {}
     if uploaded_files:
         if not api_key:
-            st.error("ACCESS DENIED: Please provide an API Key.")
+            st.error("ACCESS DENIED: Please provide a valid API Key.")
         else:
             for file in uploaded_files:
                 sub_col1, sub_col2 = st.columns(2)
@@ -334,10 +336,10 @@ if app_mode == "📡 Scanner":
                     default_name = file.name.rsplit('.', 1)[0]
                     m_name = st.text_input(f"Machine Name:", value=default_name, key=f"name_{file.name}")
                 with sub_col2:
-                    m_cat = st.selectbox(f"Baseline Class (Sany):", options=CATEGORIES, key=f"cat_{file.name}")
+                    m_cat = st.selectbox(f"Baseline Class (SANY):", options=CATEGORIES, key=f"cat_{file.name}")
                 machine_configs[file.name] = {"name": m_name, "category": m_cat}
 
-    if st.button("🚀 INITIATE AI SCAN (EXTRACT ALL DATA)", type="primary", use_container_width=True):
+    if st.button("INITIATE AI SCAN (EXTRACT ALL DATA)", type="primary", use_container_width=True):
         if uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -349,7 +351,6 @@ if app_mode == "📡 Scanner":
                 
                 file.seek(0)
                 file_part = {"mime_type": file.type, "data": file.read()}
-                # Scanner nutzt IMMER alle Parameter!
                 prompt = f"""You are a precise technical data extraction assistant. Focus EXCLUSIVELY on: "{current_machine}". Extract exact values for: {json.dumps(all_available_params)}. 1. Valid JSON object only. 2. Exact keys. 3. Use "?" if missing. 4. Convert imperial to metric. ONLY JSON."""
                 
                 try:
@@ -371,25 +372,25 @@ if app_mode == "📡 Scanner":
                     db[f"{current_machine} ({current_category})"] = extracted_json
                     save_db(db)
                 except Exception as e:
-                    st.error(f"❌ Scan failed for '{current_machine}'. Error: {e}")
+                    st.error(f"Scan failed for '{current_machine}'. Error: {e}")
                 
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
-            status_text.text("✅ Data extraction complete. Machines synced to GitHub.")
+            status_text.text("Data extraction complete. Machines synced to database.")
             time.sleep(2)
             st.rerun()
 
 # ================= VIEW 2: DATABASE =================
-elif app_mode == "📚 Database":
-    st.markdown("### 📚 MACHINE DATABASE")
+elif app_mode == "Database":
+    st.markdown("### MACHINE DATABASE")
     if db:
         col_filter, col_delete = st.columns(2)
         with col_filter:
-            lib_filter = st.selectbox("Filter database by Sany Class:", ["All"] + CATEGORIES, key="lib_filter_select")
+            lib_filter = st.selectbox("Filter database by SANY Class:", ["All"] + CATEGORIES, key="lib_filter_select")
         with col_delete:
             delete_options = ["None"] + list(db.keys())
-            to_delete = st.selectbox("🗑️ Remove faulty record:", options=delete_options)
-            if st.button("🧨 DELETE RECORD", use_container_width=True):
+            to_delete = st.selectbox("Remove faulty record:", options=delete_options)
+            if st.button("DELETE RECORD", use_container_width=True):
                 if to_delete != "None":
                     del db[to_delete]
                     save_db(db)
@@ -407,60 +408,56 @@ elif app_mode == "📚 Database":
         excel_buffer_lib = io.BytesIO()
         with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
             df_lib.to_excel(writer, index=False)
-        st.download_button("📥 DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
+        st.download_button("DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
     else:
         st.info("The database is currently empty.")
 
 # ================= VIEW 3: PRODUCT COMPARISON =================
-elif app_mode == "📊 Product Comparison":
-    st.markdown("### 📊 PRODUCT COMPARISON (THE ARENA)")
+elif app_mode == "Product Comparison":
+    st.markdown("### PRODUCT COMPARISON (THE ARENA)")
     if not db:
         st.info("No data available yet.")
     else:
         db_keys = list(db.keys())
         arena_col1, arena_col2 = st.columns(2)
         with arena_col1:
-            baseline_sel = st.selectbox("🟢 Own Product (Sany Baseline):", options=db_keys)
+            baseline_sel = st.selectbox("Own Product (SANY Baseline):", options=db_keys)
         with arena_col2:
-            competitors_sel = st.multiselect("🔴 Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
+            competitors_sel = st.multiselect("Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
             
         st.markdown("---")
-        st.markdown("#### ⚙️ MATCH SETUP")
+        st.markdown("#### MATCH SETUP")
         
-        # HIER ERFOLGT NUN DIE AUSWAHL DER ZU VERGLEICHENDEN PARAMETER!
         default_params = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)", "AUX 1 Flow"]
-        compare_params = st.multiselect("📌 Wähle Parameter für Tabelle & KI-Analyse aus:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
+        compare_params = st.multiselect("Select parameters for Matrix & AI Analysis:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
         
-        # BIOS SWITCH FÜR DIE KI
-        st.markdown("#### 🧠 AI BIOS SWITCH")
-        ai_persona = st.radio("Wähle die KI-Persönlichkeit:", 
-                              ["👔 Sales Mode (Punchy, Strategisch, ROI & Verkaufsfokus)", 
-                               "🔬 R&D Mode (Technisch, Analytisch, Engineering & Struktur)"])
+        st.markdown("#### AI BIOS SWITCH")
+        ai_persona = st.radio("Select AI Persona:", 
+                              ["Sales Mode (Punchy, Strategic, ROI & Sales Focus)", 
+                               "R&D Mode (Technical, Analytical, Engineering & Structure)"])
         
-        st.markdown("#### ✨ OUTPUT GENERATION")
-        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Charts in App)")
-        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile (Für Pitch Deck)")
-        pwr_pitch = st.checkbox("💬 Sales/Tech Arguments (Für Pitch Deck)")
+        st.markdown("#### OUTPUT GENERATION")
+        pwr_charts = st.checkbox("Visual Performance Comparison (Charts in App)")
+        pwr_ampel = st.checkbox("Strengths/Weaknesses Profile (For Pitch Deck)")
+        pwr_pitch = st.checkbox("Sales/Tech Arguments (For Pitch Deck)")
         
-        if st.button("⚖️ GENERATE COMPARISON", type="primary", use_container_width=True):
+        if st.button("GENERATE COMPARISON", type="primary", use_container_width=True):
             if competitors_sel and compare_params:
                 battle_data = [db[baseline_sel]] + [db[k] for k in competitors_sel]
                 df_battle_full = pd.DataFrame(battle_data).drop(columns=['Category'], errors='ignore')
                 
-                # Daten filtern auf die AUSGEWÄHLTEN Parameter
                 cols_to_keep = ['Machine'] + [p for p in compare_params if p in df_battle_full.columns]
                 df_battle_filtered = df_battle_full[cols_to_keep]
                 
-                # Sende das gefilterte DataFrame in den State für den PPT Export
                 st.session_state.current_df_battle = df_battle_filtered
                 
                 st.markdown("---")
-                st.write("### 🗄️ Raw Data Matrix (Filtered)")
+                st.write("### Raw Data Matrix (Filtered)")
                 st.dataframe(df_battle_filtered.set_index("Machine").T, use_container_width=True)
                 
                 if pwr_charts:
                     st.markdown("---")
-                    st.write("### 📊 Visual Performance Comparison")
+                    st.write("### Visual Performance Comparison")
                     chart_cols = st.columns(2)
                     col_idx = 0
                     for metric in compare_params:
@@ -479,25 +476,24 @@ elif app_mode == "📊 Product Comparison":
 
                 if pwr_ampel or pwr_pitch:
                     st.markdown("---")
-                    st.write("### 🧠 AI Competitive Analysis")
+                    st.write("### AI Competitive Analysis")
                     with st.spinner("The AI is analyzing the data..."):
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
-                        # PERSONALISIERTER PROMPT DURCH BIOS SWITCH
                         if "Sales" in ai_persona:
                             sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
                             sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
                             sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
                             sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                            if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
+                            if pwr_ampel: sys_prompt += "- Objective assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
                             if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Max 1 sentence each) focusing on productivity, ROI, and why the customer should buy SANY.\n"
                         else:
                             sys_prompt = f"You are a Senior R&D Engineer. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
                             sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
                             sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
                             sys_prompt += "Write the technical analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                            if pwr_ampel: sys_prompt += "- Objective technical assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
+                            if pwr_ampel: sys_prompt += "- Objective technical assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
                             if pwr_pitch: sys_prompt += "- Deep dive into engineering tradeoffs, mechanical advantages, hydraulic efficiency, and structural integrity. Use highly technical terminology (Max 1 sentence each).\n"
                             
                         try:
@@ -511,16 +507,15 @@ elif app_mode == "📊 Product Comparison":
         # --- PPT EXPORT BUTTON ---
         if st.session_state.get("ai_analysis_cache") and competitors_sel and "current_df_battle" in st.session_state:
             st.markdown("---")
-            st.markdown("### 📥 EXPORT PITCH DECK")
+            st.markdown("### EXPORT PITCH DECK")
             
             baseline_name = db[baseline_sel]['Machine']
             competitor_names = [db[k]['Machine'] for k in competitors_sel]
             
-            # --- START PPT ERSTELLUNG MIT NEUER LOGIK ---
             ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
             
             st.download_button(
-                label="🚀 DOWNLOAD PITCH DECK (.pptx)",
+                label="DOWNLOAD PITCH DECK (.pptx)",
                 data=ppt_file.getvalue(),
                 file_name=f"SANY_Pitch_{baseline_name}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
