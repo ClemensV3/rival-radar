@@ -66,74 +66,91 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
     except Exception:
         prs = Presentation() # Fallback
         
-    # Slide 1: Title Slide
+    # --- FOLIE 1: TITEL (Platzhalter "XXX") ---
     try:
-        title_layout = prs.slide_layouts[0]
-        slide1 = prs.slides.add_slide(title_layout)
-        if slide1.shapes.title:
-            slide1.shapes.title.text = "Tactical Product Comparison"
-        if len(slide1.placeholders) > 1:
-            slide1.placeholders[1].text = f"{baseline_name} vs. {', '.join(competitor_names)}"
-    except Exception:
-        pass 
+        if len(prs.slides) > 0:
+            slide1 = prs.slides[0]
+            replaced_title = False
+            
+            for shape in slide1.shapes:
+                if shape.has_text_frame:
+                    if "XXX" in shape.text_frame.text:
+                        shape.text_frame.text = f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}"
+                        replaced_title = True
+                        break
+            
+            if not replaced_title:
+                text_shapes_1 = [s for s in slide1.shapes if s.has_text_frame]
+                text_shapes_1.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
+                if len(text_shapes_1) > 0:
+                    text_shapes_1[0].text_frame.text = f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}"
+    except Exception as e:
+        print(f"Slide 1 Error: {e}")
         
-    # Slide 2: AI Analysis (CORPORATE BRANDING & AUTO-FIT HACK)
+    # --- FOLIE 2: AI ANALYSIS (Platzhalter "XXXX" für Titel, "XXX" für Body) ---
     if ai_text:
         try:
-            # Wir zwingen ihn, das zweite Layout (meist "Titel & Inhalt") zu nehmen
-            content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
-            slide2 = prs.slides.add_slide(content_layout)
-            
-            if slide2.shapes.title:
-                slide2.shapes.title.text = "Competitive Analysis & Pitch"
+            if len(prs.slides) > 1:
+                slide2 = prs.slides[1]
+            else:
+                content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
+                slide2 = prs.slides.add_slide(content_layout)
                 
-            # Wir suchen EXAKT den Platzhalter für den Inhalt (idx 1 ist meistens der Body)
-            tf = None
-            for shape in slide2.placeholders:
-                if shape != slide2.shapes.title and shape.has_text_frame:
-                    tf = shape.text_frame
-                    break
+            tf_title = None
+            tf_content = None
             
-            # Falls das Template verhunzt ist, machen wir eine Not-Box
-            if tf is None:
-                txBox = slide2.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.5))
-                tf = txBox.text_frame
+            for shape in slide2.shapes:
+                if shape.has_text_frame:
+                    text = shape.text_frame.text
+                    if "XXXX" in text:
+                        tf_title = shape.text_frame
+                    elif "XXX" in text:
+                        tf_content = shape.text_frame
+            
+            if not tf_title or not tf_content:
+                text_shapes_2 = [s for s in slide2.shapes if s.has_text_frame]
+                text_shapes_2.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
+                if len(text_shapes_2) > 0 and not tf_content:
+                    tf_content = text_shapes_2[0].text_frame
+                if len(text_shapes_2) > 1 and not tf_title:
+                    tf_title = text_shapes_2[1].text_frame
+                    
+            if tf_title:
+                tf_title.text = "Competitive Analysis & Pitch"
                 
-            tf.word_wrap = True
-            
-            # --- AUTO FIT MAGIC ---
-            # Wir sagen PowerPoint: "Pass die Schriftgröße an, wenn es nicht passt!"
-            tf.auto_size = 1 # 1 = MSO_AUTO_SIZE_TEXT_TO_FIT_SHAPE
-            
-            lines = ai_text.split('\n')
-            first_paragraph = True
-            
-            for line in lines:
-                line = line.strip()
-                # Schmutz rausfiltern
-                if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
-                    continue
-                    
-                clean_line = line.replace('**', '').replace('### ', '').replace('## ', '')
+            if tf_content:
+                tf_content.text = "" 
+                tf_content.word_wrap = True
                 
-                if first_paragraph:
-                    p = tf.paragraphs[0]
-                    first_paragraph = False
-                else:
-                    p = tf.add_paragraph()
+                # AUTO FIT MAGIC
+                tf_content.auto_size = 1 
+                
+                lines = ai_text.split('\n')
+                first_paragraph = True
+                
+                for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
+                        continue
+                        
+                    clean_line = line.replace('**', '').replace('### ', '').replace('## ', '')
                     
-                # Strukturieren!
-                if clean_line.startswith('* ') or clean_line.startswith('- '):
-                    p.text = clean_line[2:]
-                    p.level = 1 
-                    # Base Font Size setzen, PowerPoint verkleinert dann automatisch
-                    p.font.size = Pt(14)
-                else:
-                    p.text = clean_line
-                    p.level = 0
-                    p.font.bold = True
-                    p.font.size = Pt(16)
-                    
+                    if first_paragraph:
+                        p = tf_content.paragraphs[0]
+                        first_paragraph = False
+                    else:
+                        p = tf_content.add_paragraph()
+                        
+                    if clean_line.startswith('* ') or clean_line.startswith('- '):
+                        p.text = clean_line[2:]
+                        p.level = 1 
+                        p.font.size = Pt(14)
+                    else:
+                        p.text = clean_line
+                        p.level = 0
+                        p.font.bold = True
+                        p.font.size = Pt(16)
+                        
         except Exception as e:
             print(f"PPT Error: {e}")
             
@@ -359,7 +376,6 @@ elif app_mode == "📊 Product Comparison":
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
-                        # --- HIER IST DER VERBESSERTE PROMPT FÜR DIE KI ---
                         sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
                         sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
                         sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
