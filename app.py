@@ -63,7 +63,6 @@ def extract_number(val):
     return None
 
 def create_pitch_deck(baseline_name, competitor_names, ai_text):
-    # Versuche das SANY Template zu laden, ansonsten nimm ein leeres Template
     try:
         prs = Presentation("sany_template.pptx")
     except Exception:
@@ -78,20 +77,20 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
         
         title.text = "Tactical Product Comparison"
         subtitle.text = f"{baseline_name} vs. {', '.join(competitor_names)}"
-    except Exception as e:
-        pass # Robust fallback falls das Template anders aufgebaut ist
+    except Exception:
+        pass 
         
-    # Slide 2: AI Analysis
+    # Slide 2: AI Analysis (SMART PARSER)
     if ai_text:
         try:
-            content_layout = prs.slide_layouts[1]
+            # Check if template has a content layout, otherwise use blank
+            content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
             slide2 = prs.slides.add_slide(content_layout)
             
             title2 = slide2.shapes.title
             if title2:
-                title2.text = "AI Competitive Analysis & Sales Pitch"
+                title2.text = "Competitive Analysis & Pitch"
                 
-            # Erstelle eine Textbox für den generierten KI Text
             left = Inches(0.5)
             top = Inches(1.5)
             width = Inches(9)
@@ -100,16 +99,41 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
             tf = txBox.text_frame
             tf.word_wrap = True
             
-            # Bereinige Markdown Formatierungen (**, #) für sauberen PowerPoint Text
-            clean_text = ai_text.replace('**', '').replace('### ', '').replace('## ', '')
+            # Text intelligent aufsplitten
+            lines = ai_text.split('\n')
+            first_paragraph = True
             
-            p = tf.paragraphs[0]
-            p.text = clean_text
-            p.font.size = Pt(14)
+            for line in lines:
+                line = line.strip()
+                
+                # Tabellen und leere Zeilen knallhart rausfiltern
+                if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
+                    continue
+                    
+                # Markdown Sterne und Rauten entfernen
+                clean_line = line.replace('**', '').replace('### ', '').replace('## ', '')
+                
+                if first_paragraph:
+                    p = tf.paragraphs[0]
+                    first_paragraph = False
+                else:
+                    p = tf.add_paragraph()
+                    
+                # Wenn es ein Bulletpoint ist -> mache echten PPT-Bulletpoint daraus
+                if clean_line.startswith('* ') or clean_line.startswith('- '):
+                    p.text = clean_line[2:]
+                    p.level = 1 # Native PowerPoint Einrückung
+                    p.font.size = Pt(14)
+                else:
+                    # Wenn es Text/Überschrift ist -> Fett und größer
+                    p.text = clean_line
+                    p.level = 0
+                    p.font.bold = True
+                    p.font.size = Pt(16)
+                    
         except Exception as e:
-            pass
+            print(f"PPT Error: {e}")
             
-    # In den Speicher laden (damit wir es in Streamlit herunterladen können)
     ppt_stream = io.BytesIO()
     prs.save(ppt_stream)
     ppt_stream.seek(0)
@@ -332,9 +356,12 @@ elif app_mode == "📊 Product Comparison":
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
+                        # NEUER PROMPT FÜR SAUBERE SLIDES
                         sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
-                        if pwr_ampel: sys_prompt += "- Objective assessment of important parameters (Use 🟢 Superior, 🟡 Tie, 🔴 Competitor superior).\n"
-                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points) for the PPT.\n"
+                        sys_prompt += "CRITICAL: DO NOT use markdown tables like '| Feature |'. Output ONLY normal text and bullet points starting with '*'.\n"
+                        
+                        if pwr_ampel: sys_prompt += "- Objective assessment of parameters (Use 🟢, 🟡, 🔴). Format as a bullet list.\n"
+                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 2 sentences each) for the PPT.\n"
                         
                         try:
                             model = genai.GenerativeModel(selected_model_name)
