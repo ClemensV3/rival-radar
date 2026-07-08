@@ -64,7 +64,7 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
     try:
         prs = Presentation("sany_template.pptx")
     except Exception:
-        prs = Presentation() # Fallback, falls Datei fehlt
+        prs = Presentation() # Fallback
         
     # Slide 1: Title Slide
     try:
@@ -77,37 +77,40 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
     except Exception:
         pass 
         
-    # Slide 2: AI Analysis (CORPORATE BRANDING HACK)
+    # Slide 2: AI Analysis (CORPORATE BRANDING & AUTO-FIT HACK)
     if ai_text:
         try:
-            # Layout 1 ist normalerweise das "Titel & Inhalt" Layout mit den CI-Farben
+            # Wir zwingen ihn, das zweite Layout (meist "Titel & Inhalt") zu nehmen
             content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
             slide2 = prs.slides.add_slide(content_layout)
             
             if slide2.shapes.title:
                 slide2.shapes.title.text = "Competitive Analysis & Pitch"
                 
-            # Wir suchen gezielt den vorgefertigten Platzhalter (gestrichelte Box) aus dem Master
+            # Wir suchen EXAKT den Platzhalter für den Inhalt (idx 1 ist meistens der Body)
             tf = None
             for shape in slide2.placeholders:
                 if shape != slide2.shapes.title and shape.has_text_frame:
                     tf = shape.text_frame
                     break
             
-            # Nur wenn der User die Box im Template komplett gelöscht hat, malen wir eine eigene
+            # Falls das Template verhunzt ist, machen wir eine Not-Box
             if tf is None:
                 txBox = slide2.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.5))
                 tf = txBox.text_frame
                 
             tf.word_wrap = True
             
-            # Text einfügen
+            # --- AUTO FIT MAGIC ---
+            # Wir sagen PowerPoint: "Pass die Schriftgröße an, wenn es nicht passt!"
+            tf.auto_size = 1 # 1 = MSO_AUTO_SIZE_TEXT_TO_FIT_SHAPE
+            
             lines = ai_text.split('\n')
             first_paragraph = True
             
             for line in lines:
                 line = line.strip()
-                # Absolute Tabellen-Vernichtung:
+                # Schmutz rausfiltern
                 if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
                     continue
                     
@@ -119,12 +122,17 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 else:
                     p = tf.add_paragraph()
                     
+                # Strukturieren!
                 if clean_line.startswith('* ') or clean_line.startswith('- '):
                     p.text = clean_line[2:]
-                    p.level = 1 # Das hier aktiviert euer SANY-Bulletpoint-Icon!
+                    p.level = 1 
+                    # Base Font Size setzen, PowerPoint verkleinert dann automatisch
+                    p.font.size = Pt(14)
                 else:
                     p.text = clean_line
                     p.level = 0
+                    p.font.bold = True
+                    p.font.size = Pt(16)
                     
         except Exception as e:
             print(f"PPT Error: {e}")
@@ -351,13 +359,13 @@ elif app_mode == "📊 Product Comparison":
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
-                        # Absolutes Verbot für Markdown Tabellen!
+                        # --- HIER IST DER VERBESSERTE PROMPT FÜR DIE KI ---
                         sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
                         sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                        sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and bullet points starting with '*'.\n"
+                        sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
                         
-                        if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as text bullets.\n"
-                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 2 sentences each).\n"
+                        if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
+                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 1 sentence each).\n"
                         
                         try:
                             model = genai.GenerativeModel(selected_model_name)
