@@ -7,6 +7,8 @@ import os
 import re
 import time
 import altair as alt
+from pptx import Presentation
+from pptx.util import Inches, Pt
 
 # 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide", page_icon="📡")
@@ -29,32 +31,28 @@ def load_db():
     return {}
 
 def save_db(data):
-    # 1. Lokal speichern (für sofortige Verfügbarkeit)
+    # Lokal speichern
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
         
-    # 2. Auf GitHub spiegeln (Auto-Commit)
+    # Auf GitHub spiegeln
     if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
         try:
             from github import Github
             g = Github(st.secrets["GITHUB_TOKEN"])
             repo = g.get_repo(st.secrets["GITHUB_REPO"])
             json_str = json.dumps(data, indent=4)
-            
             try:
-                # Prüfen, ob die Datei schon auf GitHub existiert -> Update
                 contents = repo.get_contents(DB_FILE)
                 repo.update_file(contents.path, "🤖 Auto-Sync: Database updated", json_str, contents.sha)
             except:
-                # Wenn nicht, neu erstellen -> Create
                 repo.create_file(DB_FILE, "🤖 Auto-Sync: Database created", json_str)
         except Exception as e:
-            # Zeigt einen kleinen Fehler im Hintergrund, crasht aber nicht die App
             print(f"GitHub Sync Error: {e}")
 
 db = load_db()
 
-# --- HELPER FOR CHARTS ---
+# --- HELPER FOR CHARTS & PPT ---
 def extract_number(val):
     if isinstance(val, (int, float)):
         return float(val)
@@ -64,9 +62,65 @@ def extract_number(val):
             return float(match.group())
     return None
 
-# --- DYNAMIC STATE VARIABLES FOR NEW PARAMETERS ---
+def create_pitch_deck(baseline_name, competitor_names, ai_text):
+    # Versuche das SANY Template zu laden, ansonsten nimm ein leeres Template
+    try:
+        prs = Presentation("sany_template.pptx")
+    except Exception:
+        prs = Presentation()
+        
+    # Slide 1: Title Slide
+    try:
+        title_layout = prs.slide_layouts[0]
+        slide1 = prs.slides.add_slide(title_layout)
+        title = slide1.shapes.title
+        subtitle = slide1.placeholders[1]
+        
+        title.text = "Tactical Product Comparison"
+        subtitle.text = f"{baseline_name} vs. {', '.join(competitor_names)}"
+    except Exception as e:
+        pass # Robust fallback falls das Template anders aufgebaut ist
+        
+    # Slide 2: AI Analysis
+    if ai_text:
+        try:
+            content_layout = prs.slide_layouts[1]
+            slide2 = prs.slides.add_slide(content_layout)
+            
+            title2 = slide2.shapes.title
+            if title2:
+                title2.text = "AI Competitive Analysis & Sales Pitch"
+                
+            # Erstelle eine Textbox für den generierten KI Text
+            left = Inches(0.5)
+            top = Inches(1.5)
+            width = Inches(9)
+            height = Inches(5.5)
+            txBox = slide2.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+            tf.word_wrap = True
+            
+            # Bereinige Markdown Formatierungen (**, #) für sauberen PowerPoint Text
+            clean_text = ai_text.replace('**', '').replace('### ', '').replace('## ', '')
+            
+            p = tf.paragraphs[0]
+            p.text = clean_text
+            p.font.size = Pt(14)
+        except Exception as e:
+            pass
+            
+    # In den Speicher laden (damit wir es in Streamlit herunterladen können)
+    ppt_stream = io.BytesIO()
+    prs.save(ppt_stream)
+    ppt_stream.seek(0)
+    return ppt_stream
+
+# --- DYNAMIC STATE VARIABLES ---
 if "custom_params" not in st.session_state:
     st.session_state.custom_params = []
+
+if "ai_analysis_cache" not in st.session_state:
+    st.session_state.ai_analysis_cache = ""
 
 # --- BASE DATA ---
 CATEGORIES = [
@@ -87,12 +141,11 @@ BASE_PARAMS = [
     "STD Speed (kmh)", "OPT Speed (kmh)"
 ]
 
-# --- SIDEBAR NAVIGATION & SETTINGS ---
+# --- SIDEBAR ---
 st.sidebar.markdown("### 🧭 NAVIGATION")
 app_mode = st.sidebar.radio("Go to:", ["📡 Scanner", "📚 Database", "📊 Product Comparison"])
 st.sidebar.markdown("---")
 
-# --- API KEY HANDLING & DYNAMIC MODEL SELECTOR ---
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("🔑 API-Key loaded!")
@@ -113,7 +166,6 @@ if api_key:
                     default_idx = i
                     break
             selected_model_name = st.sidebar.selectbox("Active Model:", available_models, index=default_idx)
-            st.sidebar.caption("Recommendation: Use a 'flash' model for fast PDF scans.")
     except Exception:
         selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-1.5-flash")
 
@@ -122,7 +174,6 @@ st.sidebar.markdown("---")
 with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
     st.markdown("#### ➕ Add new metric")
     new_param_input = st.text_input("Parameter name:", placeholder="e.g., Track width (mm)", key="new_param_field")
-    
     if st.button("Save parameter", use_container_width=True):
         if new_param_input:
             clean_param = new_param_input.strip()
@@ -130,7 +181,6 @@ with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
                 st.session_state.custom_params.append(clean_param)
                 st.success(f"'{clean_param}' added!")
                 st.rerun()
-                
     st.markdown("---")
     st.markdown("#### 🎯 Active Scan Metrics")
     all_available_params = BASE_PARAMS + st.session_state.custom_params
@@ -139,8 +189,6 @@ with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
 # ================= VIEW 1: SCANNER =================
 if app_mode == "📡 Scanner":
     st.markdown("### 📥 UPLOAD DATASHEETS")
-    st.info("💡 The scanner extracts pure facts from the PDF. Qualitative AI analysis (strengths/weaknesses) is activated in the 'Product Comparison' tab.")
-    
     uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
     machine_configs = {}
@@ -148,7 +196,6 @@ if app_mode == "📡 Scanner":
         if not api_key:
             st.error("ACCESS DENIED: Please provide an API Key.")
         else:
-            st.success("Files detected. Please assign models.")
             for file in uploaded_files:
                 sub_col1, sub_col2 = st.columns(2)
                 with sub_col1:
@@ -159,220 +206,22 @@ if app_mode == "📡 Scanner":
                 machine_configs[file.name] = {"name": m_name, "category": m_cat}
 
     if st.button("🚀 INITIATE AI SCAN (EXTRACT DATA)", type="primary", use_container_width=True):
-        if not uploaded_files:
-            st.error("ERROR: No files selected for scanning.")
-        elif not selected_parameters:
-            st.error("ERROR: No scan parameters selected.")
-        else:
+        if uploaded_files and selected_parameters:
             progress_bar = st.progress(0)
             status_text = st.empty()
-            has_error = False
             
             for index, file in enumerate(uploaded_files):
-                current_config = machine_configs[file.name]
-                current_machine = current_config["name"]
-                current_category = current_config["category"]
-                
-                status_text.text(f"Scanning data for '{current_machine}' ({current_category})...")
+                current_machine = machine_configs[file.name]["name"]
+                current_category = machine_configs[file.name]["category"]
+                status_text.text(f"Scanning '{current_machine}'...")
                 
                 file.seek(0)
-                file_bytes = file.read()
-                file_part = {"mime_type": file.type, "data": file_bytes}
-                
-                prompt = f"""
-                You are a precise technical data extraction assistant.
-                Focus EXCLUSIVELY on the technical data for the specific model/series: "{current_machine}".
-                Extract exact values for: {json.dumps(selected_parameters, ensure_ascii=False)}
-                Requirements:
-                1. Valid JSON object only.
-                2. Exact matching keys.
-                3. Use "?" if missing.
-                4. UNIT CONVERSION: Convert imperial to metric (kW, kg, liters, mm). No imperial units.
-                Respond ONLY with raw JSON format.
-                """
+                file_part = {"mime_type": file.type, "data": file.read()}
+                prompt = f"""You are a precise technical data extraction assistant. Focus EXCLUSIVELY on: "{current_machine}". Extract exact values for: {json.dumps(selected_parameters)}. 1. Valid JSON object only. 2. Exact keys. 3. Use "?" if missing. 4. Convert imperial to metric. ONLY JSON."""
                 
                 try:
                     model = genai.GenerativeModel(selected_model_name)
+                    response = model.generate_content(contents=[file_part, prompt], generation_config={"response_mime_type": "application/json"})
                     
-                    safety_settings = [
-                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
-                    ]
-                    
-                    response = model.generate_content(
-                        contents=[file_part, prompt],
-                        generation_config={"response_mime_type": "application/json"},
-                        safety_settings=safety_settings
-                    )
-                    
-                    if not response.candidates:
-                        raise Exception("Google Safety Filter blocked the response! Try again.")
-                        
                     raw_text = response.text.strip()
-                    if raw_text.startswith("```json"):
-                        raw_text = raw_text[7:]
-                    elif raw_text.startswith("```"):
-                        raw_text = raw_text[3:]
-                    if raw_text.endswith("```"):
-                        raw_text = raw_text[:-3]
-                        
-                    raw_text = raw_text.strip()
-                    extracted_json = json.loads(raw_text)
-                    
-                    extracted_json["Machine"] = current_machine
-                    extracted_json["Category"] = current_category
-                    
-                    unique_id = f"{current_machine} ({current_category})"
-                    db[unique_id] = extracted_json
-                    save_db(db) # Hier passiert die GitHub-Magie!
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    if "429" in error_msg:
-                        match = re.search(r"seconds:\s*(\d+)", error_msg)
-                        wait_seconds = int(match.group(1)) + 2 if match else 45
-                        
-                        countdown_box = st.empty()
-                        for i in range(wait_seconds, 0, -1):
-                            countdown_box.error(f"🛑 API limit reached! Scanner cooling down... Please wait: {i} seconds.")
-                            time.sleep(1)
-                        countdown_box.success("🟢 System ready! You can initiate the scan again.")
-                        has_error = True
-                    else:
-                        st.error(f"❌ Scan failed for '{current_machine}'. Error: {error_msg}")
-                        has_error = True
-                
-                progress_bar.progress((index + 1) / len(uploaded_files))
-            
-            if not has_error:
-                status_text.text("✅ Data extraction complete. Machines synced to GitHub.")
-                time.sleep(2)
-                st.rerun()
-
-# ================= VIEW 2: DATABASE =================
-elif app_mode == "📚 Database":
-    st.markdown("### 📚 MACHINE DATABASE")
-    if db:
-        col_filter, col_delete = st.columns(2)
-        with col_filter:
-            lib_filter = st.selectbox("Filter database by Sany Class:", ["All"] + CATEGORIES, key="lib_filter_select")
-        with col_delete:
-            delete_options = ["None"] + list(db.keys())
-            to_delete = st.selectbox("🗑️ Remove faulty record:", options=delete_options)
-            if st.button("🧨 DELETE RECORD", use_container_width=True):
-                if to_delete != "None":
-                    del db[to_delete]
-                    save_db(db)
-                    st.rerun()
-                    
-        st.markdown("---")
-        
-        if db: 
-            db_rows = list(db.values())
-            df_lib = pd.DataFrame(db_rows)
-            df_lib = df_lib.rename(columns={'Category': 'Class'})
-            
-            cols = ['Machine', 'Class'] + [c for c in df_lib.columns if c not in ['Machine', 'Class']]
-            df_lib = df_lib[cols]
-            
-            if lib_filter != "All":
-                df_lib = df_lib[df_lib['Class'] == lib_filter]
-                
-            st.dataframe(df_lib, use_container_width=True)
-            
-            excel_buffer_lib = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
-                df_lib.to_excel(writer, index=False, sheet_name='Master_Database')
-            st.download_button("📥 DOWNLOAD DATABASE AS EXCEL (.xlsx)", excel_buffer_lib.getvalue(), "RivalRadar_Database.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-    else:
-        st.info("The database is currently empty. Scan datasheets first.")
-
-# ================= VIEW 3: PRODUCT COMPARISON =================
-elif app_mode == "📊 Product Comparison":
-    st.markdown("### 📊 PRODUCT COMPARISON (COMPETITIVE ANALYSIS)")
-    if not db:
-        st.info("No data available yet. Load machines into the database via the scanner first!")
-    else:
-        db_keys = list(db.keys())
-        
-        arena_col1, arena_col2 = st.columns(2)
-        with arena_col1:
-            baseline_sel = st.selectbox("🟢 Own Product (Sany Baseline):", options=db_keys)
-        with arena_col2:
-            competitors_sel = st.multiselect("🔴 Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
-            
-        st.markdown("#### ✨ ACTIVATE AI ANALYSES")
-        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Generate bar charts)")
-        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile (Traffic light system)")
-        pwr_pitch = st.checkbox("💬 Sales Arguments (Generate Elevator Pitch)")
-        
-        if st.button("⚖️ GENERATE COMPARISON", type="primary", use_container_width=True):
-            if not competitors_sel:
-                st.warning("Please select at least one competitor model to start the comparison!")
-            else:
-                battle_roster = [baseline_sel] + competitors_sel
-                battle_data = [db[k] for k in battle_roster]
-                
-                df_battle = pd.DataFrame(battle_data)
-                if 'Category' in df_battle.columns:
-                    df_battle = df_battle.drop(columns=['Category'])
-                df_battle_t = df_battle.set_index("Machine").T
-                
-                st.markdown("---")
-                st.write("### 🗄️ Raw Data Overview")
-                st.dataframe(df_battle_t, use_container_width=True)
-                
-                if pwr_charts:
-                    st.markdown("---")
-                    st.write("### 📊 Visual Performance Comparison")
-                    
-                    chart_metrics = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)"]
-                    
-                    chart_cols = st.columns(2)
-                    col_idx = 0
-                    
-                    for metric in chart_metrics:
-                        if metric in df_battle.columns:
-                            chart_data = []
-                            for _, row in df_battle.iterrows():
-                                val = extract_number(row.get(metric))
-                                if val is not None:
-                                    chart_data.append({"Machine": row['Machine'], metric: val})
-                            
-                            if chart_data:
-                                df_chart = pd.DataFrame(chart_data)
-                                
-                                chart = alt.Chart(df_chart).mark_bar().encode(
-                                    x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
-                                    y=alt.Y(metric, title=None),
-                                    color=alt.Color('Machine', legend=None),
-                                    tooltip=['Machine', metric]
-                                ).properties(height=300, title=metric)
-                                
-                                with chart_cols[col_idx % 2]:
-                                    st.altair_chart(chart, use_container_width=True)
-                                col_idx += 1
-
-                if pwr_ampel or pwr_pitch:
-                    st.markdown("---")
-                    st.write("### 🧠 AI Competitive Analysis")
-                    with st.spinner("The AI is analyzing the data..."):
-                        
-                        sys_prompt = f"You are a Senior Sales Strategist for construction machinery. Analyze this comparison in English. Our own product (baseline) is '{db[baseline_sel]['Machine']}'. The competitors are: {', '.join([db[k]['Machine'] for k in competitors_sel])}. Here is the data as JSON: {json.dumps(battle_data)}."
-                        
-                        reqs = []
-                        if pwr_ampel:
-                            reqs.append("- Provide an objective assessment of the most important parameters compared to the competition (Use the traffic light system: 🟢 We are superior, 🟡 Tie/Similar, 🔴 Competitor is superior).")
-                        if pwr_pitch:
-                            reqs.append("- Formulate punchy sales arguments (Elevator Pitch): Why should the customer choose our machine in a direct comparison? Where do sales reps need to be careful in their argumentation?")
-                            
-                        sys_prompt += "\n\nRequirements:\n" + "\n".join(reqs)
-                        
-                        try:
-                            model = genai.GenerativeModel(selected_model_name)
-                            response = model.generate_content(sys_prompt)
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"AI Analysis failed: {str(e)}")
+                    if raw_text.startswith("
