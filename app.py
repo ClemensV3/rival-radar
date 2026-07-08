@@ -61,10 +61,15 @@ def extract_number(val):
     return None
 
 def get_template_path():
-    """Sucht rekursiv nach der SANY-Vorlage."""
+    """Sucht rekursiv nach der SANY-Vorlage und blockiert versteckte System-Dateien."""
+    # 1. Zuerst schauen, ob die Datei direkt im Hauptordner liegt
+    if os.path.exists("sany_template.pptx"):
+        return "sany_template.pptx"
+        
+    # 2. Ansonsten suchen, ABER versteckte Dateien (wie ._sany_template.pptx vom Mac) ignorieren
     for root, dirs, files in os.walk("."):
         for file in files:
-            if "sany" in file.lower() and file.endswith(".pptx"):
+            if "sany" in file.lower() and file.endswith(".pptx") and not file.startswith("._") and not file.startswith("."):
                 return os.path.join(root, file)
     return None
 
