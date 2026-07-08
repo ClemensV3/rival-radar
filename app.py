@@ -60,24 +60,28 @@ def extract_number(val):
             return float(match.group())
     return None
 
+def get_template_path():
+    """Sucht rekursiv nach der SANY-Vorlage."""
+    for root, dirs, files in os.walk("."):
+        for file in files:
+            if "sany" in file.lower() and file.endswith(".pptx"):
+                return os.path.join(root, file)
+    return None
+
 def create_pitch_deck(baseline_name, competitor_names, ai_text):
-    # 1. SMART TEMPLATE FINDER (Ignoriert Leerzeichen und Tippfehler im Dateinamen)
-    template_path = None
-    try:
-        for file in os.listdir():
-            if file.lower().endswith(".pptx") and "sany" in file.lower():
-                template_path = file
-                break
-    except Exception:
-        pass
-        
-    try:
-        if template_path:
-            prs = Presentation(template_path)
-        else:
-            prs = Presentation() # Fallback, falls gar nichts gefunden wird
-    except Exception:
+    # 1. TEMPLATE LADEN (Bulletproof)
+    template_path = get_template_path()
+    
+    if not template_path:
+        st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden! Erstelle leeres Notfall-Deck.")
         prs = Presentation() 
+    else:
+        try:
+            prs = Presentation(template_path)
+            st.success(f"✅ Template gefunden: {template_path}")
+        except Exception as e:
+            st.error(f"🚨 Fehler beim Laden des Templates '{template_path}': {e}")
+            prs = Presentation()
         
     # --- FOLIE 1: TITEL (Platzhalter "XXX") ---
     try:
@@ -414,13 +418,15 @@ elif app_mode == "📊 Product Comparison":
             st.markdown("---")
             st.markdown("### 📥 EXPORT PITCH DECK")
             
-            # Neue Sicherheitsabfrage für die UI, damit du direkt merkst, falls was fehlt!
-            template_exists = any(f.lower().endswith(".pptx") and "sany" in f.lower() for f in os.listdir() if os.path.isfile(f))
-            if not template_exists:
-                st.warning("⚠️ Hinweis: Die SANY-Vorlage (.pptx) wurde auf dem Server nicht gefunden! Es wird eine Standard-Präsentation erzeugt.")
-            
             baseline_name = db[baseline_sel]['Machine']
             competitor_names = [db[k]['Machine'] for k in competitors_sel]
+            
+            # --- START PPT ERSTELLUNG MIT DEBUG ---
+            template_path = get_template_path()
+            if not template_path:
+                 st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden! Bitte überprüfe den Dateinamen auf GitHub. Erstelle leeres Notfall-Deck.")
+            else:
+                 st.success(f"✅ Template erfolgreich geladen aus: `{template_path}`")
             
             ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache)
             
