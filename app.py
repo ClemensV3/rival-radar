@@ -9,6 +9,7 @@ import time
 import altair as alt
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
 
 # 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide", page_icon="📡")
@@ -61,24 +62,19 @@ def extract_number(val):
     return None
 
 def get_template_path():
-    """Sucht rekursiv nach der SANY-Vorlage und blockiert versteckte System-Dateien."""
-    # 1. Zuerst schauen, ob die Datei direkt im Hauptordner liegt
     if os.path.exists("sany_template.pptx"):
         return "sany_template.pptx"
-        
-    # 2. Ansonsten suchen, ABER versteckte Dateien (wie ._sany_template.pptx vom Mac) ignorieren
     for root, dirs, files in os.walk("."):
         for file in files:
             if "sany" in file.lower() and file.endswith(".pptx") and not file.startswith("._") and not file.startswith("."):
                 return os.path.join(root, file)
     return None
 
-def create_pitch_deck(baseline_name, competitor_names, ai_text):
-    # 1. TEMPLATE LADEN (Bulletproof)
+def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     
     if not template_path:
-        st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden! Erstelle leeres Notfall-Deck.")
+        st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden!")
         prs = Presentation() 
     else:
         try:
@@ -97,7 +93,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
             for shape in slide1.shapes:
                 if shape.has_text_frame:
                     if "XXX" in shape.text_frame.text:
-                        # Ersetzt den Text sicher im vorhandenen Platzhalter
                         shape.text_frame.text = shape.text_frame.text.replace("XXX", f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}")
                         replaced_title = True
                         break
@@ -110,19 +105,86 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
     except Exception as e:
         print(f"Slide 1 Error: {e}")
         
-    # --- FOLIE 2: AI ANALYSIS (Platzhalter "XXXX" für Titel, "XXX" für Body) ---
+    # --- FOLIE 1.5: DATENTABELLE (NEUE FOLIE) ---
+    try:
+        table_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
+        table_slide = prs.slides.add_slide(table_layout)
+        
+        # XML-Hack: Verschiebe diese Folie auf Position 2 (Index 1)
+        slide_id_list = prs.slides._sldIdLst
+        new_slide_id = slide_id_list[-1]
+        slide_id_list.remove(new_slide_id)
+        slide_id_list.insert(1, new_slide_id)
+        
+        # Platziere den Titel (versuche XXXX Platzhalter zu nutzen)
+        title_set = False
+        for shape in table_slide.shapes:
+            if shape.has_text_frame and "XXXX" in shape.text_frame.text:
+                shape.text_frame.text = shape.text_frame.text.replace("XXXX", "Technical Specifications Matrix")
+                title_set = True
+                break
+        
+        if not title_set and table_slide.shapes.title:
+            table_slide.shapes.title.text = "Technical Specifications Matrix"
+            
+        # Optional: XXX Platzhalter löschen, da wir eine Tabelle zeichnen
+        for shape in table_slide.shapes:
+            if shape.has_text_frame and "XXX" in shape.text_frame.text:
+                shape.text_frame.text = ""
+
+        # Tabelle Zeichnen
+        rows = len(df_battle.columns)
+        cols = len(df_battle) + 1
+        
+        left = Inches(0.5)
+        top = Inches(1.8)
+        width = Inches(9.0)
+        height = Inches(0.4 * rows) # Dynamische Höhe
+        
+        shape = table_slide.shapes.add_table(rows, cols, left, top, width, height)
+        table = shape.table
+        
+        # Spaltenbreiten justieren (Parameter-Name breiter)
+        table.columns[0].width = Inches(2.5)
+        for i in range(1, cols):
+            table.columns[i].width = Inches(6.5 / (cols - 1))
+            
+        # Zelle befüllen
+        for row_idx, col_name in enumerate(df_battle.columns):
+            cell = table.cell(row_idx, 0)
+            cell.text = str(col_name)
+            cell.text_frame.paragraphs[0].font.bold = True
+            cell.text_frame.paragraphs[0].font.size = Pt(11)
+            
+        for m_idx, row_data in df_battle.iterrows():
+            col_idx = m_idx + 1
+            for r_idx, col_name in enumerate(df_battle.columns):
+                cell = table.cell(r_idx, col_idx)
+                val = str(row_data[col_name])
+                if val == "nan" or val == "None": val = "-"
+                cell.text = val
+                cell.text_frame.paragraphs[0].font.size = Pt(11)
+                cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                if r_idx == 0: 
+                    cell.text_frame.paragraphs[0].font.bold = True
+                    
+    except Exception as e:
+        print(f"Table Slide Error: {e}")
+
+    # --- FOLIE 2 (Jetzt Folie 3): AI ANALYSIS ---
     if ai_text:
         try:
-            if len(prs.slides) > 1:
-                slide2 = prs.slides[1]
+            # Da wir eine Folie eingefügt haben, ist die AI-Folie jetzt auf Index 2
+            if len(prs.slides) > 2:
+                slide3 = prs.slides[2]
             else:
                 content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
-                slide2 = prs.slides.add_slide(content_layout)
+                slide3 = prs.slides.add_slide(content_layout)
                 
             tf_title = None
             tf_content = None
             
-            for shape in slide2.shapes:
+            for shape in slide3.shapes:
                 if shape.has_text_frame:
                     text = shape.text_frame.text
                     if "XXXX" in text:
@@ -132,12 +194,12 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                         tf_content = shape.text_frame
             
             if not tf_title or not tf_content:
-                text_shapes_2 = [s for s in slide2.shapes if s.has_text_frame]
-                text_shapes_2.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
-                if len(text_shapes_2) > 0 and not tf_content:
-                    tf_content = text_shapes_2[0].text_frame
-                if len(text_shapes_2) > 1 and not tf_title:
-                    tf_title = text_shapes_2[1].text_frame
+                text_shapes_3 = [s for s in slide3.shapes if s.has_text_frame]
+                text_shapes_3.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
+                if len(text_shapes_3) > 0 and not tf_content:
+                    tf_content = text_shapes_3[0].text_frame
+                if len(text_shapes_3) > 1 and not tf_title:
+                    tf_title = text_shapes_3[1].text_frame
                     
             if tf_title and "XXXX" in tf_title.text:
                 tf_title.text = "Competitive Analysis & Pitch"
@@ -146,7 +208,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 tf_content.text = "" 
                 tf_content.word_wrap = True
                 
-                # AUTO FIT MAGIC
                 try:
                     tf_content.auto_size = 1 
                 except:
@@ -242,8 +303,8 @@ if api_key:
 
 st.sidebar.markdown("---")
 
-with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
-    st.markdown("#### ➕ Add new metric")
+with st.sidebar.expander("⚙️ CONFIGURE DATABASE PARAMS", expanded=False):
+    st.info("Diese Parameter kennt das System. Der Scanner extrahiert im Hintergrund automatisch IMMER alle hier bekannten Metriken.")
     new_param_input = st.text_input("Parameter name:", placeholder="e.g., Track width (mm)", key="new_param_field")
     if st.button("Save parameter", use_container_width=True):
         if new_param_input:
@@ -252,14 +313,14 @@ with st.sidebar.expander("⚙️ CONFIGURE PARAMETERS", expanded=False):
                 st.session_state.custom_params.append(clean_param)
                 st.success(f"'{clean_param}' added!")
                 st.rerun()
-    st.markdown("---")
-    st.markdown("#### 🎯 Active Scan Metrics")
-    all_available_params = BASE_PARAMS + st.session_state.custom_params
-    selected_parameters = st.multiselect("Selected Parameters:", options=all_available_params, default=all_available_params)
+                
+all_available_params = BASE_PARAMS + st.session_state.custom_params
 
 # ================= VIEW 1: SCANNER =================
 if app_mode == "📡 Scanner":
     st.markdown("### 📥 UPLOAD DATASHEETS")
+    st.info("Der Scanner extrahiert vollautomatisch alle bekannten Metriken aus der PDF. Welche Parameter du vergleichen willst, wählst du im 'Product Comparison' Tab.")
+    
     uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
     machine_configs = {}
@@ -276,8 +337,8 @@ if app_mode == "📡 Scanner":
                     m_cat = st.selectbox(f"Baseline Class (Sany):", options=CATEGORIES, key=f"cat_{file.name}")
                 machine_configs[file.name] = {"name": m_name, "category": m_cat}
 
-    if st.button("🚀 INITIATE AI SCAN (EXTRACT DATA)", type="primary", use_container_width=True):
-        if uploaded_files and selected_parameters:
+    if st.button("🚀 INITIATE AI SCAN (EXTRACT ALL DATA)", type="primary", use_container_width=True):
+        if uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -288,7 +349,8 @@ if app_mode == "📡 Scanner":
                 
                 file.seek(0)
                 file_part = {"mime_type": file.type, "data": file.read()}
-                prompt = f"""You are a precise technical data extraction assistant. Focus EXCLUSIVELY on: "{current_machine}". Extract exact values for: {json.dumps(selected_parameters)}. 1. Valid JSON object only. 2. Exact keys. 3. Use "?" if missing. 4. Convert imperial to metric. ONLY JSON."""
+                # Scanner nutzt IMMER alle Parameter!
+                prompt = f"""You are a precise technical data extraction assistant. Focus EXCLUSIVELY on: "{current_machine}". Extract exact values for: {json.dumps(all_available_params)}. 1. Valid JSON object only. 2. Exact keys. 3. Use "?" if missing. 4. Convert imperial to metric. ONLY JSON."""
                 
                 try:
                     model = genai.GenerativeModel(selected_model_name)
@@ -351,7 +413,7 @@ elif app_mode == "📚 Database":
 
 # ================= VIEW 3: PRODUCT COMPARISON =================
 elif app_mode == "📊 Product Comparison":
-    st.markdown("### 📊 PRODUCT COMPARISON (COMPETITIVE ANALYSIS)")
+    st.markdown("### 📊 PRODUCT COMPARISON (THE ARENA)")
     if not db:
         st.info("No data available yet.")
     else:
@@ -362,29 +424,48 @@ elif app_mode == "📊 Product Comparison":
         with arena_col2:
             competitors_sel = st.multiselect("🔴 Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
             
-        st.markdown("#### ✨ ACTIVATE AI ANALYSES")
-        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Charts)")
-        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile")
-        pwr_pitch = st.checkbox("💬 Sales Arguments (Pitch)")
+        st.markdown("---")
+        st.markdown("#### ⚙️ MATCH SETUP")
+        
+        # HIER ERFOLGT NUN DIE AUSWAHL DER ZU VERGLEICHENDEN PARAMETER!
+        default_params = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)", "AUX 1 Flow"]
+        compare_params = st.multiselect("📌 Wähle Parameter für Tabelle & KI-Analyse aus:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
+        
+        # BIOS SWITCH FÜR DIE KI
+        st.markdown("#### 🧠 AI BIOS SWITCH")
+        ai_persona = st.radio("Wähle die KI-Persönlichkeit:", 
+                              ["👔 Sales Mode (Punchy, Strategisch, ROI & Verkaufsfokus)", 
+                               "🔬 R&D Mode (Technisch, Analytisch, Engineering & Struktur)"])
+        
+        st.markdown("#### ✨ OUTPUT GENERATION")
+        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Charts in App)")
+        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile (Für Pitch Deck)")
+        pwr_pitch = st.checkbox("💬 Sales/Tech Arguments (Für Pitch Deck)")
         
         if st.button("⚖️ GENERATE COMPARISON", type="primary", use_container_width=True):
-            if competitors_sel:
+            if competitors_sel and compare_params:
                 battle_data = [db[baseline_sel]] + [db[k] for k in competitors_sel]
-                df_battle = pd.DataFrame(battle_data).drop(columns=['Category'], errors='ignore')
+                df_battle_full = pd.DataFrame(battle_data).drop(columns=['Category'], errors='ignore')
+                
+                # Daten filtern auf die AUSGEWÄHLTEN Parameter
+                cols_to_keep = ['Machine'] + [p for p in compare_params if p in df_battle_full.columns]
+                df_battle_filtered = df_battle_full[cols_to_keep]
+                
+                # Sende das gefilterte DataFrame in den State für den PPT Export
+                st.session_state.current_df_battle = df_battle_filtered
                 
                 st.markdown("---")
-                st.write("### 🗄️ Raw Data Overview")
-                st.dataframe(df_battle.set_index("Machine").T, use_container_width=True)
+                st.write("### 🗄️ Raw Data Matrix (Filtered)")
+                st.dataframe(df_battle_filtered.set_index("Machine").T, use_container_width=True)
                 
                 if pwr_charts:
                     st.markdown("---")
                     st.write("### 📊 Visual Performance Comparison")
-                    chart_metrics = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)"]
                     chart_cols = st.columns(2)
                     col_idx = 0
-                    for metric in chart_metrics:
-                        if metric in df_battle.columns:
-                            chart_data = [{"Machine": row['Machine'], metric: extract_number(row.get(metric))} for _, row in df_battle.iterrows() if extract_number(row.get(metric)) is not None]
+                    for metric in compare_params:
+                        if metric in df_battle_filtered.columns:
+                            chart_data = [{"Machine": row['Machine'], metric: extract_number(row.get(metric))} for _, row in df_battle_filtered.iterrows() if extract_number(row.get(metric)) is not None]
                             if chart_data:
                                 chart = alt.Chart(pd.DataFrame(chart_data)).mark_bar().encode(
                                     x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
@@ -403,13 +484,22 @@ elif app_mode == "📊 Product Comparison":
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
-                        sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
-                        sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                        sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                        
-                        if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
-                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 1 sentence each).\n"
-                        
+                        # PERSONALISIERTER PROMPT DURCH BIOS SWITCH
+                        if "Sales" in ai_persona:
+                            sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
+                            sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
+                            sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
+                            sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
+                            if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
+                            if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Max 1 sentence each) focusing on productivity, ROI, and why the customer should buy SANY.\n"
+                        else:
+                            sys_prompt = f"You are a Senior R&D Engineer. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
+                            sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
+                            sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
+                            sys_prompt += "Write the technical analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
+                            if pwr_ampel: sys_prompt += "- Objective technical assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as SHORT text bullets.\n"
+                            if pwr_pitch: sys_prompt += "- Deep dive into engineering tradeoffs, mechanical advantages, hydraulic efficiency, and structural integrity. Use highly technical terminology (Max 1 sentence each).\n"
+                            
                         try:
                             model = genai.GenerativeModel(selected_model_name)
                             response = model.generate_content(sys_prompt)
@@ -419,21 +509,15 @@ elif app_mode == "📊 Product Comparison":
                             st.error(f"AI Analysis failed: {e}")
 
         # --- PPT EXPORT BUTTON ---
-        if st.session_state.get("ai_analysis_cache") and competitors_sel:
+        if st.session_state.get("ai_analysis_cache") and competitors_sel and "current_df_battle" in st.session_state:
             st.markdown("---")
             st.markdown("### 📥 EXPORT PITCH DECK")
             
             baseline_name = db[baseline_sel]['Machine']
             competitor_names = [db[k]['Machine'] for k in competitors_sel]
             
-            # --- START PPT ERSTELLUNG MIT DEBUG ---
-            template_path = get_template_path()
-            if not template_path:
-                 st.error("🚨 KRITISCHER FEHLER: SANY-Template (.pptx) auf dem Server nicht gefunden! Bitte überprüfe den Dateinamen auf GitHub. Erstelle leeres Notfall-Deck.")
-            else:
-                 st.success(f"✅ Template erfolgreich geladen aus: `{template_path}`")
-            
-            ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache)
+            # --- START PPT ERSTELLUNG MIT NEUER LOGIK ---
+            ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
             
             st.download_button(
                 label="🚀 DOWNLOAD PITCH DECK (.pptx)",
