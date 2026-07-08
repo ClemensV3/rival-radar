@@ -224,4 +224,140 @@ if app_mode == "📡 Scanner":
                     response = model.generate_content(contents=[file_part, prompt], generation_config={"response_mime_type": "application/json"})
                     
                     raw_text = response.text.strip()
-                    if raw_text.startswith("
+                    if raw_text.startswith("```json"): 
+                        raw_text = raw_text[7:]
+                    elif raw_text.startswith("```"): 
+                        raw_text = raw_text[3:]
+                    if raw_text.endswith("```"): 
+                        raw_text = raw_text[:-3]
+                        
+                    extracted_json = json.loads(raw_text.strip())
+                    extracted_json["Machine"] = current_machine
+                    extracted_json["Category"] = current_category
+                    
+                    db[f"{current_machine} ({current_category})"] = extracted_json
+                    save_db(db)
+                except Exception as e:
+                    st.error(f"❌ Scan failed for '{current_machine}'. Error: {e}")
+                
+                progress_bar.progress((index + 1) / len(uploaded_files))
+            
+            status_text.text("✅ Data extraction complete. Machines synced to GitHub.")
+            time.sleep(2)
+            st.rerun()
+
+# ================= VIEW 2: DATABASE =================
+elif app_mode == "📚 Database":
+    st.markdown("### 📚 MACHINE DATABASE")
+    if db:
+        col_filter, col_delete = st.columns(2)
+        with col_filter:
+            lib_filter = st.selectbox("Filter database by Sany Class:", ["All"] + CATEGORIES, key="lib_filter_select")
+        with col_delete:
+            delete_options = ["None"] + list(db.keys())
+            to_delete = st.selectbox("🗑️ Remove faulty record:", options=delete_options)
+            if st.button("🧨 DELETE RECORD", use_container_width=True):
+                if to_delete != "None":
+                    del db[to_delete]
+                    save_db(db)
+                    st.rerun()
+                    
+        st.markdown("---")
+        df_lib = pd.DataFrame(list(db.values())).rename(columns={'Category': 'Class'})
+        cols = ['Machine', 'Class'] + [c for c in df_lib.columns if c not in ['Machine', 'Class']]
+        df_lib = df_lib[cols]
+        if lib_filter != "All":
+            df_lib = df_lib[df_lib['Class'] == lib_filter]
+            
+        st.dataframe(df_lib, use_container_width=True)
+        
+        excel_buffer_lib = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
+            df_lib.to_excel(writer, index=False)
+        st.download_button("📥 DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
+    else:
+        st.info("The database is currently empty.")
+
+# ================= VIEW 3: PRODUCT COMPARISON =================
+elif app_mode == "📊 Product Comparison":
+    st.markdown("### 📊 PRODUCT COMPARISON (COMPETITIVE ANALYSIS)")
+    if not db:
+        st.info("No data available yet.")
+    else:
+        db_keys = list(db.keys())
+        arena_col1, arena_col2 = st.columns(2)
+        with arena_col1:
+            baseline_sel = st.selectbox("🟢 Own Product (Sany Baseline):", options=db_keys)
+        with arena_col2:
+            competitors_sel = st.multiselect("🔴 Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
+            
+        st.markdown("#### ✨ ACTIVATE AI ANALYSES")
+        pwr_charts = st.checkbox("📊 Visual Performance Comparison (Charts)")
+        pwr_ampel = st.checkbox("🚦 Strengths/Weaknesses Profile")
+        pwr_pitch = st.checkbox("💬 Sales Arguments (Pitch)")
+        
+        if st.button("⚖️ GENERATE COMPARISON", type="primary", use_container_width=True):
+            if competitors_sel:
+                battle_data = [db[baseline_sel]] + [db[k] for k in competitors_sel]
+                df_battle = pd.DataFrame(battle_data).drop(columns=['Category'], errors='ignore')
+                
+                st.markdown("---")
+                st.write("### 🗄️ Raw Data Overview")
+                st.dataframe(df_battle.set_index("Machine").T, use_container_width=True)
+                
+                if pwr_charts:
+                    st.markdown("---")
+                    st.write("### 📊 Visual Performance Comparison")
+                    chart_metrics = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)"]
+                    chart_cols = st.columns(2)
+                    col_idx = 0
+                    for metric in chart_metrics:
+                        if metric in df_battle.columns:
+                            chart_data = [{"Machine": row['Machine'], metric: extract_number(row.get(metric))} for _, row in df_battle.iterrows() if extract_number(row.get(metric)) is not None]
+                            if chart_data:
+                                chart = alt.Chart(pd.DataFrame(chart_data)).mark_bar().encode(
+                                    x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
+                                    y=alt.Y(metric, title=None),
+                                    color=alt.Color('Machine', legend=None),
+                                    tooltip=['Machine', metric]
+                                ).properties(height=300, title=metric)
+                                with chart_cols[col_idx % 2]:
+                                    st.altair_chart(chart, use_container_width=True)
+                                col_idx += 1
+
+                if pwr_ampel or pwr_pitch:
+                    st.markdown("---")
+                    st.write("### 🧠 AI Competitive Analysis")
+                    with st.spinner("The AI is analyzing the data..."):
+                        baseline_name = db[baseline_sel]['Machine']
+                        competitor_names = [db[k]['Machine'] for k in competitors_sel]
+                        
+                        sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
+                        if pwr_ampel: sys_prompt += "- Objective assessment of important parameters (Use 🟢 Superior, 🟡 Tie, 🔴 Competitor superior).\n"
+                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points) for the PPT.\n"
+                        
+                        try:
+                            model = genai.GenerativeModel(selected_model_name)
+                            response = model.generate_content(sys_prompt)
+                            st.session_state.ai_analysis_cache = response.text
+                            st.markdown(response.text)
+                        except Exception as e:
+                            st.error(f"AI Analysis failed: {e}")
+
+        # --- PPT EXPORT BUTTON ---
+        if st.session_state.get("ai_analysis_cache") and competitors_sel:
+            st.markdown("---")
+            st.markdown("### 📥 EXPORT PITCH DECK")
+            baseline_name = db[baseline_sel]['Machine']
+            competitor_names = [db[k]['Machine'] for k in competitors_sel]
+            
+            ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache)
+            
+            st.download_button(
+                label="🚀 DOWNLOAD PITCH DECK (.pptx)",
+                data=ppt_file.getvalue(),
+                file_name=f"SANY_Pitch_{baseline_name}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+                type="primary"
+            )
