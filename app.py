@@ -14,28 +14,42 @@ from pptx.enum.text import PP_ALIGN
 # 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide")
 
-# --- CUSTOM CSS FOR SANY LOOK & RADAR ---
+# --- CUSTOM CSS FOR SANY LOOK, RADAR & RED ALERTS ---
 st.markdown("""
 <style>
-    /* Custom Radar Animation */
+    /* Global Font Size Boost */
+    html, body, [class*="st-"] {
+        font-size: 1.1rem;
+    }
+
+    /* Custom Radar Animation - SCALED UP */
     @keyframes sweep {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+    }
+    .header-link {
+        text-decoration: none;
+        display: block;
+        cursor: pointer;
     }
     .radar-container {
         display: flex;
         justify-content: center;
         align-items: center;
         margin-bottom: 5px;
+        transition: transform 0.2s ease-in-out;
+    }
+    .radar-container:hover {
+        transform: scale(1.02);
     }
     .radar {
         position: relative;
-        width: 40px;
-        height: 40px;
+        width: 60px; /* RIESIG */
+        height: 60px; /* RIESIG */
         border-radius: 50%;
-        border: 2px solid #E3000F; /* SANY Red */
+        border: 3px solid #E3000F; /* SANY Red */
         background: radial-gradient(circle, rgba(227,0,15,0.1) 0%, rgba(26,28,30,0) 70%);
-        margin-right: 15px;
+        margin-right: 20px;
         overflow: hidden;
     }
     .radar::before {
@@ -43,8 +57,8 @@ st.markdown("""
         position: absolute;
         top: 50%;
         left: 50%;
-        width: 20px;
-        height: 2px;
+        width: 30px;
+        height: 3px;
         background-color: #E3000F;
         transform-origin: 0% 50%;
         animation: sweep 2s linear infinite;
@@ -55,28 +69,33 @@ st.markdown("""
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 4px;
-        height: 4px;
+        width: 8px;
+        height: 8px;
         background-color: #ffffff;
         border-radius: 50%;
     }
     
     /* Typography Overrides */
     .title-text {
-        font-size: 3rem;
-        font-weight: 800;
-        letter-spacing: 2px;
+        font-size: 4.5rem; /* RIESIG */
+        font-weight: 900;
+        letter-spacing: 3px;
         color: #ffffff;
         margin: 0;
         text-transform: uppercase;
+        transition: color 0.3s;
     }
+    .header-link:hover .title-text {
+        color: #E3000F;
+    }
+    
     .subtitle-text {
         text-align: center; 
         color: #E3000F; /* SANY Red */
         font-weight: 600;
-        letter-spacing: 1.5px;
-        margin-top: 5px;
-        font-size: 1.1rem;
+        letter-spacing: 2px;
+        margin-top: 10px;
+        font-size: 1.3rem;
     }
     
     /* Global Adjustments */
@@ -84,22 +103,37 @@ st.markdown("""
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 1px;
+        font-size: 1.1rem;
+        padding: 0.75rem 1.5rem;
     }
     h3 {
         text-transform: uppercase;
         letter-spacing: 1px;
-        border-bottom: 1px solid #444;
+        border-bottom: 2px solid #E3000F;
         padding-bottom: 10px;
+        margin-top: 20px;
+    }
+
+    /* OVERRIDE STREAMLIT ALERTS (Info/Success) TO SANY RED */
+    div[data-testid="stAlert"] {
+        background-color: rgba(227, 0, 15, 0.1) !important;
+        border: 1px solid #E3000F !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stAlert"] svg {
+        fill: #E3000F !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Modern Header
+# 2. Massive Header acting as Home Button (href="?" reloads the app)
 st.markdown("""
-<div class="radar-container">
-    <div class="radar"></div>
-    <h1 class="title-text">RivalRadar</h1>
-</div>
+<a href="?" target="_self" class="header-link" title="Click to reset App">
+    <div class="radar-container">
+        <div class="radar"></div>
+        <h1 class="title-text">RivalRadar</h1>
+    </div>
+</a>
 """, unsafe_allow_html=True)
 st.markdown("<h4 class='subtitle-text'>[ AI-POWERED COMPETITOR ANALYSIS SYSTEM ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
@@ -164,7 +198,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     else:
         try:
             prs = Presentation(template_path)
-            st.success(f"Template successfully loaded from: {template_path}")
         except Exception as e:
             st.error(f"Error loading template '{template_path}': {e}")
             prs = Presentation()
@@ -195,13 +228,11 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
         table_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
         table_slide = prs.slides.add_slide(table_layout)
         
-        # XML-Hack: Verschiebe diese Folie auf Position 2 (Index 1)
         slide_id_list = prs.slides._sldIdLst
         new_slide_id = slide_id_list[-1]
         slide_id_list.remove(new_slide_id)
         slide_id_list.insert(1, new_slide_id)
         
-        # Platziere den Titel (versuche XXXX Platzhalter zu nutzen)
         title_set = False
         for shape in table_slide.shapes:
             if shape.has_text_frame and "XXXX" in shape.text_frame.text:
@@ -212,29 +243,25 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
         if not title_set and table_slide.shapes.title:
             table_slide.shapes.title.text = "Technical Specifications Matrix"
             
-        # Optional: XXX Platzhalter löschen, da wir eine Tabelle zeichnen
         for shape in table_slide.shapes:
             if shape.has_text_frame and "XXX" in shape.text_frame.text:
                 shape.text_frame.text = ""
 
-        # Tabelle Zeichnen
         rows = len(df_battle.columns)
         cols = len(df_battle) + 1
         
         left = Inches(0.5)
         top = Inches(1.8)
         width = Inches(9.0)
-        height = Inches(0.4 * rows) # Dynamische Höhe
+        height = Inches(0.4 * rows) 
         
         shape = table_slide.shapes.add_table(rows, cols, left, top, width, height)
         table = shape.table
         
-        # Spaltenbreiten justieren (Parameter-Name breiter)
         table.columns[0].width = Inches(2.5)
         for i in range(1, cols):
             table.columns[i].width = Inches(6.5 / (cols - 1))
             
-        # Zelle befüllen
         for row_idx, col_name in enumerate(df_battle.columns):
             cell = table.cell(row_idx, 0)
             cell.text = str(col_name)
@@ -259,7 +286,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     # --- FOLIE 2 (Jetzt Folie 3): AI ANALYSIS ---
     if ai_text:
         try:
-            # Da wir eine Folie eingefügt haben, ist die AI-Folie jetzt auf Index 2
             if len(prs.slides) > 2:
                 slide3 = prs.slides[2]
             else:
@@ -365,12 +391,12 @@ st.sidebar.markdown("---")
 
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
     api_key = st.secrets["GEMINI_API_KEY"]
-    st.sidebar.success("API-Key loaded successfully.")
+    # Dies wird durch CSS in SANY-Rot angezeigt, auch wenn es st.success ist!
+    st.sidebar.success("API-Key loaded successfully.") 
 else:
     st.sidebar.markdown("### SYSTEM SETTINGS")
     api_key = st.sidebar.text_input("Gemini API Key (Manual)", type="password")
 
-# Model Selection Logic for gemini-3.1-flash-lite
 selected_model_name = "gemini-3.1-flash-lite"
 if api_key:
     genai.configure(api_key=api_key)
@@ -378,7 +404,6 @@ if api_key:
     try:
         available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if available_models:
-            # Force gemini-3.1-flash-lite as default
             default_idx = 0
             if "gemini-3.1-flash-lite" in available_models:
                 default_idx = available_models.index("gemini-3.1-flash-lite")
@@ -407,6 +432,7 @@ all_available_params = BASE_PARAMS + st.session_state.custom_params
 # ================= VIEW 1: SCANNER =================
 if app_mode == "Scanner":
     st.markdown("### UPLOAD DATASHEETS")
+    # Wird durch CSS rot eingefärbt
     st.info("The AI scanner automatically extracts all known metrics from the provided documents. You can select specific parameters to compare in the 'Product Comparison' tab.")
     
     uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
