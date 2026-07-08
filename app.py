@@ -61,10 +61,23 @@ def extract_number(val):
     return None
 
 def create_pitch_deck(baseline_name, competitor_names, ai_text):
+    # 1. SMART TEMPLATE FINDER (Ignoriert Leerzeichen und Tippfehler im Dateinamen)
+    template_path = None
     try:
-        prs = Presentation("sany_template.pptx")
+        for file in os.listdir():
+            if file.lower().endswith(".pptx") and "sany" in file.lower():
+                template_path = file
+                break
     except Exception:
-        prs = Presentation() # Fallback
+        pass
+        
+    try:
+        if template_path:
+            prs = Presentation(template_path)
+        else:
+            prs = Presentation() # Fallback, falls gar nichts gefunden wird
+    except Exception:
+        prs = Presentation() 
         
     # --- FOLIE 1: TITEL (Platzhalter "XXX") ---
     try:
@@ -75,7 +88,8 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
             for shape in slide1.shapes:
                 if shape.has_text_frame:
                     if "XXX" in shape.text_frame.text:
-                        shape.text_frame.text = f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}"
+                        # Ersetzt den Text sicher im vorhandenen Platzhalter
+                        shape.text_frame.text = shape.text_frame.text.replace("XXX", f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}")
                         replaced_title = True
                         break
             
@@ -103,6 +117,7 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 if shape.has_text_frame:
                     text = shape.text_frame.text
                     if "XXXX" in text:
+                        shape.text_frame.text = text.replace("XXXX", "Competitive Analysis & Pitch")
                         tf_title = shape.text_frame
                     elif "XXX" in text:
                         tf_content = shape.text_frame
@@ -115,7 +130,7 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 if len(text_shapes_2) > 1 and not tf_title:
                     tf_title = text_shapes_2[1].text_frame
                     
-            if tf_title:
+            if tf_title and "XXXX" in tf_title.text:
                 tf_title.text = "Competitive Analysis & Pitch"
                 
             if tf_content:
@@ -123,7 +138,10 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 tf_content.word_wrap = True
                 
                 # AUTO FIT MAGIC
-                tf_content.auto_size = 1 
+                try:
+                    tf_content.auto_size = 1 
+                except:
+                    pass
                 
                 lines = ai_text.split('\n')
                 first_paragraph = True
@@ -395,6 +413,12 @@ elif app_mode == "📊 Product Comparison":
         if st.session_state.get("ai_analysis_cache") and competitors_sel:
             st.markdown("---")
             st.markdown("### 📥 EXPORT PITCH DECK")
+            
+            # Neue Sicherheitsabfrage für die UI, damit du direkt merkst, falls was fehlt!
+            template_exists = any(f.lower().endswith(".pptx") and "sany" in f.lower() for f in os.listdir() if os.path.isfile(f))
+            if not template_exists:
+                st.warning("⚠️ Hinweis: Die SANY-Vorlage (.pptx) wurde auf dem Server nicht gefunden! Es wird eine Standard-Präsentation erzeugt.")
+            
             baseline_name = db[baseline_sel]['Machine']
             competitor_names = [db[k]['Machine'] for k in competitors_sel]
             
