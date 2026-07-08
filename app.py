@@ -31,11 +31,9 @@ def load_db():
     return {}
 
 def save_db(data):
-    # Lokal speichern
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
         
-    # Auf GitHub spiegeln
     if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
         try:
             from github import Github
@@ -66,51 +64,53 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
     try:
         prs = Presentation("sany_template.pptx")
     except Exception:
-        prs = Presentation()
+        prs = Presentation() # Fallback, falls Datei fehlt
         
     # Slide 1: Title Slide
     try:
         title_layout = prs.slide_layouts[0]
         slide1 = prs.slides.add_slide(title_layout)
-        title = slide1.shapes.title
-        subtitle = slide1.placeholders[1]
-        
-        title.text = "Tactical Product Comparison"
-        subtitle.text = f"{baseline_name} vs. {', '.join(competitor_names)}"
+        if slide1.shapes.title:
+            slide1.shapes.title.text = "Tactical Product Comparison"
+        if len(slide1.placeholders) > 1:
+            slide1.placeholders[1].text = f"{baseline_name} vs. {', '.join(competitor_names)}"
     except Exception:
         pass 
         
-    # Slide 2: AI Analysis (SMART PARSER)
+    # Slide 2: AI Analysis (CORPORATE BRANDING HACK)
     if ai_text:
         try:
-            # Check if template has a content layout, otherwise use blank
+            # Layout 1 ist normalerweise das "Titel & Inhalt" Layout mit den CI-Farben
             content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
             slide2 = prs.slides.add_slide(content_layout)
             
-            title2 = slide2.shapes.title
-            if title2:
-                title2.text = "Competitive Analysis & Pitch"
+            if slide2.shapes.title:
+                slide2.shapes.title.text = "Competitive Analysis & Pitch"
                 
-            left = Inches(0.5)
-            top = Inches(1.5)
-            width = Inches(9)
-            height = Inches(5.5)
-            txBox = slide2.shapes.add_textbox(left, top, width, height)
-            tf = txBox.text_frame
+            # Wir suchen gezielt den vorgefertigten Platzhalter (gestrichelte Box) aus dem Master
+            tf = None
+            for shape in slide2.placeholders:
+                if shape != slide2.shapes.title and shape.has_text_frame:
+                    tf = shape.text_frame
+                    break
+            
+            # Nur wenn der User die Box im Template komplett gelöscht hat, malen wir eine eigene
+            if tf is None:
+                txBox = slide2.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.5))
+                tf = txBox.text_frame
+                
             tf.word_wrap = True
             
-            # Text intelligent aufsplitten
+            # Text einfügen
             lines = ai_text.split('\n')
             first_paragraph = True
             
             for line in lines:
                 line = line.strip()
-                
-                # Tabellen und leere Zeilen knallhart rausfiltern
+                # Absolute Tabellen-Vernichtung:
                 if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
                     continue
                     
-                # Markdown Sterne und Rauten entfernen
                 clean_line = line.replace('**', '').replace('### ', '').replace('## ', '')
                 
                 if first_paragraph:
@@ -119,17 +119,12 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text):
                 else:
                     p = tf.add_paragraph()
                     
-                # Wenn es ein Bulletpoint ist -> mache echten PPT-Bulletpoint daraus
                 if clean_line.startswith('* ') or clean_line.startswith('- '):
                     p.text = clean_line[2:]
-                    p.level = 1 # Native PowerPoint Einrückung
-                    p.font.size = Pt(14)
+                    p.level = 1 # Das hier aktiviert euer SANY-Bulletpoint-Icon!
                 else:
-                    # Wenn es Text/Überschrift ist -> Fett und größer
                     p.text = clean_line
                     p.level = 0
-                    p.font.bold = True
-                    p.font.size = Pt(16)
                     
         except Exception as e:
             print(f"PPT Error: {e}")
@@ -356,12 +351,13 @@ elif app_mode == "📊 Product Comparison":
                         baseline_name = db[baseline_sel]['Machine']
                         competitor_names = [db[k]['Machine'] for k in competitors_sel]
                         
-                        # NEUER PROMPT FÜR SAUBERE SLIDES
+                        # Absolutes Verbot für Markdown Tabellen!
                         sys_prompt = f"You are a Senior Sales Strategist. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}. Data: {json.dumps(battle_data)}.\n\n"
-                        sys_prompt += "CRITICAL: DO NOT use markdown tables like '| Feature |'. Output ONLY normal text and bullet points starting with '*'.\n"
+                        sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
+                        sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and bullet points starting with '*'.\n"
                         
-                        if pwr_ampel: sys_prompt += "- Objective assessment of parameters (Use 🟢, 🟡, 🔴). Format as a bullet list.\n"
-                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 2 sentences each) for the PPT.\n"
+                        if pwr_ampel: sys_prompt += "- Objective assessment (🟢 Superior, 🟡 Tie, 🔴 Competitor superior) formatted as text bullets.\n"
+                        if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Bullet points max 2 sentences each).\n"
                         
                         try:
                             model = genai.GenerativeModel(selected_model_name)
