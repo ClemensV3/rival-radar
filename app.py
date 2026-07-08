@@ -14,9 +14,94 @@ from pptx.enum.text import PP_ALIGN
 # 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide")
 
-# 2. Modern Header (Cleaned up, bigger Radar, updated Subtitle)
-st.markdown("<h1 style='text-align: center;'><span style='font-size: 1.3em;'>📡</span> RivalRadar</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ AI-POWERED COMPETITOR ANALYSIS SYSTEM ]</h4>", unsafe_allow_html=True)
+# --- CUSTOM CSS FOR SANY LOOK & RADAR ---
+st.markdown("""
+<style>
+    /* Custom Radar Animation */
+    @keyframes sweep {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    .radar-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 5px;
+    }
+    .radar {
+        position: relative;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 2px solid #E3000F; /* SANY Red */
+        background: radial-gradient(circle, rgba(227,0,15,0.1) 0%, rgba(26,28,30,0) 70%);
+        margin-right: 15px;
+        overflow: hidden;
+    }
+    .radar::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 20px;
+        height: 2px;
+        background-color: #E3000F;
+        transform-origin: 0% 50%;
+        animation: sweep 2s linear infinite;
+    }
+    .radar::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 4px;
+        height: 4px;
+        background-color: #ffffff;
+        border-radius: 50%;
+    }
+    
+    /* Typography Overrides */
+    .title-text {
+        font-size: 3rem;
+        font-weight: 800;
+        letter-spacing: 2px;
+        color: #ffffff;
+        margin: 0;
+        text-transform: uppercase;
+    }
+    .subtitle-text {
+        text-align: center; 
+        color: #E3000F; /* SANY Red */
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        margin-top: 5px;
+        font-size: 1.1rem;
+    }
+    
+    /* Global Adjustments */
+    .stButton>button {
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    h3 {
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 2. Modern Header
+st.markdown("""
+<div class="radar-container">
+    <div class="radar"></div>
+    <h1 class="title-text">RivalRadar</h1>
+</div>
+""", unsafe_allow_html=True)
+st.markdown("<h4 class='subtitle-text'>[ AI-POWERED COMPETITOR ANALYSIS SYSTEM ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- DATABASE SETUP & GITHUB SYNC ---
@@ -285,6 +370,7 @@ else:
     st.sidebar.markdown("### SYSTEM SETTINGS")
     api_key = st.sidebar.text_input("Gemini API Key (Manual)", type="password")
 
+# Model Selection Logic for gemini-3.1-flash-lite
 selected_model_name = "gemini-3.1-flash-lite"
 if api_key:
     genai.configure(api_key=api_key)
@@ -292,13 +378,13 @@ if api_key:
     try:
         available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if available_models:
+            # Force gemini-3.1-flash-lite as default
             default_idx = 0
-            for i, m in enumerate(available_models):
-                if "gemini-3.1-flash-lite" in m:
-                    default_idx = i
-                    break
-                elif "flash" in m and default_idx == 0:
-                    default_idx = i
+            if "gemini-3.1-flash-lite" in available_models:
+                default_idx = available_models.index("gemini-3.1-flash-lite")
+            elif any("flash-lite" in m for m in available_models):
+                default_idx = next(i for i, m in enumerate(available_models) if "flash-lite" in m)
+                
             selected_model_name = st.sidebar.selectbox("Active Model:", available_models, index=default_idx)
     except Exception:
         selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-3.1-flash-lite")
@@ -426,17 +512,17 @@ elif app_mode == "Product Comparison":
             competitors_sel = st.multiselect("Competitor Models:", options=[k for k in db_keys if k != baseline_sel])
             
         st.markdown("---")
-        st.markdown("#### MATCH SETUP")
+        st.markdown("### MATCH SETUP")
         
         default_params = ["Operating weight (kg)", "Engine Power STD (kW)", "Max Digging depth", "Breakout force (kN)", "AUX 1 Flow"]
         compare_params = st.multiselect("Select parameters for Matrix & AI Analysis:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
         
-        st.markdown("#### AI BIOS SWITCH")
+        st.markdown("### AI BIOS SWITCH")
         ai_persona = st.radio("Select AI Persona:", 
                               ["Sales Mode (Punchy, Strategic, ROI & Sales Focus)", 
                                "R&D Mode (Technical, Analytical, Engineering & Structure)"])
         
-        st.markdown("#### OUTPUT GENERATION")
+        st.markdown("### OUTPUT GENERATION")
         pwr_charts = st.checkbox("Visual Performance Comparison (Charts in App)")
         pwr_ampel = st.checkbox("Strengths/Weaknesses Profile (For Pitch Deck)")
         pwr_pitch = st.checkbox("Sales/Tech Arguments (For Pitch Deck)")
