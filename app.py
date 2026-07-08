@@ -16,7 +16,7 @@ st.markdown("<h1 style='text-align: center;'>📡 RivalRadar</h1>", unsafe_allow
 st.markdown("<h4 style='text-align: center; color: #10b981; font-weight: normal;'>[ AI-POWERED COMPETITOR ANALYSIS FOR SALES ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- DATABASE SETUP ---
+# --- DATABASE SETUP & GITHUB SYNC ---
 DB_FILE = "machine_database.json"
 
 def load_db():
@@ -29,8 +29,28 @@ def load_db():
     return {}
 
 def save_db(data):
+    # 1. Lokal speichern (für sofortige Verfügbarkeit)
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
+        
+    # 2. Auf GitHub spiegeln (Auto-Commit)
+    if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        try:
+            from github import Github
+            g = Github(st.secrets["GITHUB_TOKEN"])
+            repo = g.get_repo(st.secrets["GITHUB_REPO"])
+            json_str = json.dumps(data, indent=4)
+            
+            try:
+                # Prüfen, ob die Datei schon auf GitHub existiert -> Update
+                contents = repo.get_contents(DB_FILE)
+                repo.update_file(contents.path, "🤖 Auto-Sync: Database updated", json_str, contents.sha)
+            except:
+                # Wenn nicht, neu erstellen -> Create
+                repo.create_file(DB_FILE, "🤖 Auto-Sync: Database created", json_str)
+        except Exception as e:
+            # Zeigt einen kleinen Fehler im Hintergrund, crasht aber nicht die App
+            print(f"GitHub Sync Error: {e}")
 
 db = load_db()
 
@@ -206,7 +226,7 @@ if app_mode == "📡 Scanner":
                     
                     unique_id = f"{current_machine} ({current_category})"
                     db[unique_id] = extracted_json
-                    save_db(db)
+                    save_db(db) # Hier passiert die GitHub-Magie!
                     
                 except Exception as e:
                     error_msg = str(e)
@@ -227,7 +247,7 @@ if app_mode == "📡 Scanner":
                 progress_bar.progress((index + 1) / len(uploaded_files))
             
             if not has_error:
-                status_text.text("✅ Data extraction complete. Machines saved to database.")
+                status_text.text("✅ Data extraction complete. Machines synced to GitHub.")
                 time.sleep(2)
                 st.rerun()
 
