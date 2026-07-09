@@ -7,6 +7,8 @@ import os
 import re
 import time
 import altair as alt
+import feedparser
+import urllib.parse
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -377,7 +379,7 @@ if "ai_analysis_cache" not in st.session_state:
 
 # --- SIDEBAR ---
 st.sidebar.markdown("### NAVIGATION")
-app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison"])
+app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar"])
 st.sidebar.markdown("---")
 
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
@@ -462,201 +464,7 @@ if app_mode == "Scanner":
                     response = model.generate_content(contents=[file_part, prompt], generation_config={"response_mime_type": "application/json"})
                     
                     raw_text = response.text.strip()
-                    if raw_text.startswith("```json"): raw_text = raw_text[7:]
-                    elif raw_text.startswith("```"): raw_text = raw_text[3:]
-                    if raw_text.endswith("```"): raw_text = raw_text[:-3]
-                        
-                    extracted_json = json.loads(raw_text.strip())
-                    extracted_json["Machine"] = current_machine
-                    extracted_json["Category"] = current_category
-                    extracted_json["Machine Type"] = selected_machine_type
-                    
-                    db[f"{current_machine} ({current_category})"] = extracted_json
-                    save_db(db)
-                except Exception as e:
-                    st.error(f"Scan failed for '{current_machine}'. Error: {e}")
-                
-                progress_bar.progress((index + 1) / len(uploaded_files))
-            
-            status_text.text("Data extraction complete. Machines synced to database.")
-            time.sleep(2)
-            st.rerun()
-
-# ================= VIEW 2: DATABASE =================
-elif app_mode == "Database":
-    st.markdown("### MACHINE DATABASE")
-    if db:
-        col_filter_type, col_filter_cat, col_delete = st.columns(3)
-        
-        all_types = list(set([v.get("Machine Type", "Tracked Excavator") for v in db.values()]))
-        with col_filter_type:
-            type_filter = st.selectbox("Filter by Machine Type:", ["All"] + all_types)
-            
-        with col_filter_cat:
-            cat_options = ["All"]
-            if type_filter != "All":
-                cat_options += CATEGORIES.get(type_filter, [])
-            else:
-                for cats in CATEGORIES.values():
-                    cat_options += cats
-            cat_filter = st.selectbox("Filter by SANY Class:", cat_options)
-            
-        with col_delete:
-            delete_options = ["None"] + list(db.keys())
-            to_delete = st.selectbox("Remove faulty record:", options=delete_options)
-            if st.button("DELETE RECORD", use_container_width=True):
-                if to_delete != "None":
-                    del db[to_delete]
-                    save_db(db)
-                    st.rerun()
-                    
-        st.markdown("---")
-        df_lib = pd.DataFrame(list(db.values()))
-        if 'Category' in df_lib.columns:
-            df_lib = df_lib.rename(columns={'Category': 'Class'})
-        if 'Machine Type' not in df_lib.columns:
-            df_lib['Machine Type'] = "Tracked Excavator"
-            
-        cols = ['Machine', 'Machine Type', 'Class'] + [c for c in df_lib.columns if c not in ['Machine', 'Machine Type', 'Class']]
-        df_lib = df_lib[cols]
-        
-        if type_filter != "All":
-            df_lib = df_lib[df_lib['Machine Type'] == type_filter]
-        if cat_filter != "All":
-            df_lib = df_lib[df_lib['Class'] == cat_filter]
-            
-        st.dataframe(df_lib, use_container_width=True)
-        
-        excel_buffer_lib = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
-            df_lib.to_excel(writer, index=False)
-        st.download_button("DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
-    else:
-        st.error("The database is currently empty.")
-
-# ================= VIEW 3: PRODUCT COMPARISON =================
-elif app_mode == "Product Comparison":
-    st.markdown("### PRODUCT COMPARISON (THE ARENA)")
-    if not db:
-        st.error("No data available yet.")
-    else:
-        st.markdown("#### 1. SELECT ARENA TYPE")
-        arena_type = st.radio("Filter Arena By Machine Type:", MACHINE_TYPES, horizontal=True)
-        
-        filtered_db_keys = [k for k, v in db.items() if v.get("Machine Type", "Tracked Excavator") == arena_type]
-        
-        if not filtered_db_keys:
-            st.error(f"No machines found for '{arena_type}' in the database.")
-        else:
-            arena_col1, arena_col2 = st.columns(2)
-            with arena_col1:
-                baseline_sel = st.selectbox("Own Product (SANY Baseline):", options=filtered_db_keys)
-            with arena_col2:
-                competitors_sel = st.multiselect("Competitor Models:", options=[k for k in filtered_db_keys if k != baseline_sel])
-                
-            st.markdown("---")
-            st.markdown("### MATCH SETUP")
-            
-            all_available_params = PARAMS[arena_type] + st.session_state.custom_params[arena_type]
-            
-            # Smart Default Parameters based on machine type
-            if arena_type == "Tracked Excavator":
-                default_params = ["Operating Weight (kg)", "Net Power (kW)", "Max Digging Depth (mm)", "Breakout Force - Bucket (kN)", "AUX 1 Flow (l/min)"]
-            elif arena_type == "Wheeled Excavator":
-                default_params = ["Operating Weight with Blade (kg)", "Net Power (kW)", "Max Travel Speed High (km/h)", "Breakout Force (kN)", "Tail Swing Radius (mm)"]
-            else:
-                default_params = ["Operating Weight (kg)", "Rated Payload (kg)", "Static Tipping Load - Full Turn (kg)", "Standard Bucket Capacity Heaped (m3)", "Total Cycle Time (s)"]
-                
-            compare_params = st.multiselect("Select parameters for Matrix & AI Analysis:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
-            
-            st.markdown("### AI BIOS SWITCH")
-            ai_persona = st.radio("Select AI Persona:", 
-                                  ["Sales Mode (Punchy, Strategic, ROI & Sales Focus)", 
-                                   "R&D Mode (Technical, Analytical, Engineering & Structure)"])
-            
-            st.markdown("### OUTPUT GENERATION")
-            pwr_charts = st.checkbox("Visual Performance Comparison (Charts in App)")
-            pwr_ampel = st.checkbox("Strengths/Weaknesses Profile (For Pitch Deck)")
-            pwr_pitch = st.checkbox("Sales/Tech Arguments (For Pitch Deck)")
-            
-            if st.button("GENERATE COMPARISON", type="primary", use_container_width=True):
-                if competitors_sel and compare_params:
-                    battle_data = [db[baseline_sel]] + [db[k] for k in competitors_sel]
-                    df_battle_full = pd.DataFrame(battle_data).drop(columns=['Category', 'Machine Type', 'Class'], errors='ignore')
-                    
-                    cols_to_keep = ['Machine'] + [p for p in compare_params if p in df_battle_full.columns]
-                    df_battle_filtered = df_battle_full[cols_to_keep]
-                    
-                    st.session_state.current_df_battle = df_battle_filtered
-                    
-                    st.markdown("---")
-                    st.write("### Raw Data Matrix (Filtered)")
-                    st.dataframe(df_battle_filtered.set_index("Machine").T, use_container_width=True)
-                    
-                    if pwr_charts:
-                        st.markdown("---")
-                        st.write("### Visual Performance Comparison")
-                        chart_cols = st.columns(2)
-                        col_idx = 0
-                        for metric in compare_params:
-                            if metric in df_battle_filtered.columns:
-                                chart_data = [{"Machine": row['Machine'], metric: extract_number(row.get(metric))} for _, row in df_battle_filtered.iterrows() if extract_number(row.get(metric)) is not None]
-                                if chart_data:
-                                    chart = alt.Chart(pd.DataFrame(chart_data)).mark_bar().encode(
-                                        x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
-                                        y=alt.Y(metric, title=None),
-                                        color=alt.Color('Machine', legend=None),
-                                        tooltip=['Machine', metric]
-                                    ).properties(height=300, title=metric)
-                                    with chart_cols[col_idx % 2]:
-                                        st.altair_chart(chart, use_container_width=True)
-                                    col_idx += 1
-
-                    if pwr_ampel or pwr_pitch:
-                        st.markdown("---")
-                        st.write("### AI Competitive Analysis")
-                        with st.spinner("The AI is analyzing the data..."):
-                            baseline_name = db[baseline_sel]['Machine']
-                            competitor_names = [db[k]['Machine'] for k in competitors_sel]
-                            
-                            if "Sales" in ai_persona:
-                                sys_prompt = f"You are a Senior Sales Strategist evaluating {arena_type} models. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
-                                sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
-                                sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                                sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                                if pwr_ampel: sys_prompt += "- Objective assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
-                                if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Max 1 sentence each) focusing on productivity, ROI, and why the customer should buy SANY.\n"
-                            else:
-                                sys_prompt = f"You are a Senior R&D Engineer evaluating {arena_type} models. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
-                                sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
-                                sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                                sys_prompt += "Write the technical analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                                if pwr_ampel: sys_prompt += "- Objective technical assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
-                                if pwr_pitch: sys_prompt += "- Deep dive into engineering tradeoffs, mechanical advantages, hydraulic efficiency, and structural integrity. Use highly technical terminology (Max 1 sentence each).\n"
-                                
-                            try:
-                                model = genai.GenerativeModel(selected_model_name)
-                                response = model.generate_content(sys_prompt)
-                                st.session_state.ai_analysis_cache = response.text
-                                st.markdown(response.text)
-                            except Exception as e:
-                                st.error(f"AI Analysis failed: {e}")
-
-            # --- PPT EXPORT BUTTON ---
-            if st.session_state.get("ai_analysis_cache") and competitors_sel and "current_df_battle" in st.session_state:
-                st.markdown("---")
-                st.markdown("### EXPORT PITCH DECK")
-                
-                baseline_name = db[baseline_sel]['Machine']
-                competitor_names = [db[k]['Machine'] for k in competitors_sel]
-                
-                ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
-                
-                st.download_button(
-                    label="DOWNLOAD PITCH DECK (.pptx)",
-                    data=ppt_file.getvalue(),
-                    file_name=f"SANY_Pitch_{baseline_name}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True,
-                    type="primary"
-                )
+                    if raw_text.startswith("
+http://googleusercontent.com/immersive_entry_chip/0
+http://googleusercontent.com/immersive_entry_chip/1
+http://googleusercontent.com/immersive_entry_chip/2
