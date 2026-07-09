@@ -6,3 +6,4 @@ pypdf>=4.0.0
 altair
 PyGithub
 python-pptx
+feedparser
