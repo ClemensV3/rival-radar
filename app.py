@@ -746,21 +746,29 @@ elif app_mode == "News Radar":
     
     col1, col2 = st.columns([2, 1])
     with col1:
-        selected_oem = st.selectbox("Target OEM:", oem_list)
+        # HIER: "All Competitors" ganz oben in der Liste als Option hinzugefügt
+        selected_oem = st.selectbox("Target OEM:", ["All Competitors"] + oem_list)
     with col2:
         search_focus = st.selectbox("Focus Area:", ["Excavator", "Wheel Loader", "Corporate / Tech"])
         
-    if st.button(f"INITIATE RADAR SWEEP FOR {selected_oem}", type="primary", use_container_width=True):
+    button_text = "INITIATE RADAR SWEEP FOR ALL" if selected_oem == "All Competitors" else f"INITIATE RADAR SWEEP FOR {selected_oem.upper()}"
+    
+    if st.button(button_text, type="primary", use_container_width=True):
         if not api_key:
             st.error("ACCESS DENIED: Please provide a valid API Key to use the AI Briefing.")
         else:
             with st.spinner("Intercepting global feeds and generating AI summary..."):
                 
-                # Smart Search Query Setup
-                if search_focus == "Corporate / Tech":
-                    query = f'"{selected_oem}" (equipment OR machinery) (launch OR technology OR "press release")'
+                # Smart Search Query Setup depending on selection
+                if selected_oem == "All Competitors":
+                    oem_query_part = "(" + " OR ".join([f'"{o}"' for o in oem_list]) + ")"
                 else:
-                    query = f'"{selected_oem}" "{search_focus}" (launch OR reveal OR "press release" OR new)'
+                    oem_query_part = f'"{selected_oem}"'
+
+                if search_focus == "Corporate / Tech":
+                    query = f'{oem_query_part} (equipment OR machinery) (launch OR technology OR "press release")'
+                else:
+                    query = f'{oem_query_part} "{search_focus}" (launch OR reveal OR "press release" OR new)'
                     
                 query_encoded = urllib.parse.quote(query)
                 rss_url = f"https://news.google.com/rss/search?q={query_encoded}&hl=en-US&gl=US&ceid=US:en"
@@ -773,9 +781,12 @@ elif app_mode == "News Radar":
                     else:
                         news_text = ""
                         st.markdown("---")
-                        st.markdown(f"#### INTERCEPTED SIGNALS (TOP 5)")
                         
-                        for entry in feed.entries[:5]:
+                        # Mehr Suchergebnisse anzeigen, wenn nach allen gesucht wird
+                        result_limit = 10 if selected_oem == "All Competitors" else 5
+                        st.markdown(f"#### INTERCEPTED SIGNALS (TOP {result_limit})")
+                        
+                        for entry in feed.entries[:result_limit]:
                             st.markdown(f"**[{entry.title}]({entry.link})**")
                             pub_date = entry.published if hasattr(entry, 'published') else "Recent"
                             st.caption(f"Broadcast Date: {pub_date}")
@@ -785,13 +796,15 @@ elif app_mode == "News Radar":
                         st.markdown("---")
                         st.markdown("#### 🧠 AI STRATEGY BRIEFING")
                         
+                        target_text = "our top competitors in the global market" if selected_oem == "All Competitors" else f"our competitor {selected_oem}"
+                        
                         sys_prompt = f"""
                         You are a Senior Market Intelligence Analyst for SANY Europe. 
-                        Analyze these recent headlines about our competitor {selected_oem}:
+                        Analyze these recent headlines about {target_text}:
                         {news_text}
                         
                         Provide a punchy, professional 3-sentence executive summary in English. 
-                        Highlight any potential strategic threats or product advancements that SANY sales teams need to watch out for.
+                        Highlight any potential strategic threats, market trends, or product advancements that SANY sales teams need to watch out for.
                         No markdown tables, just plain text.
                         """
                         
