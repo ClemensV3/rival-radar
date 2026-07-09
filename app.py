@@ -142,7 +142,7 @@ st.markdown("---")
 
 # --- MACHINE DATA DEFINITIONS ---
 
-MACHINE_TYPES = ["Tracked Excavator", "Wheeled Excavator", "Wheel Loader"]
+MACHINE_TYPES = ["Tracked Excavator", "Wheeled Excavator", "Wheel Loader", "Mining Excavator"]
 
 CATEGORIES = {
     "Tracked Excavator": [
@@ -156,6 +156,9 @@ CATEGORIES = {
     ],
     "Wheel Loader": [
         "SW305K", "SW405K"
+    ],
+    "Mining Excavator": [
+        "SY2000H"
     ]
 }
 
@@ -185,6 +188,16 @@ PARAMS = {
         "Transmission Type", "Gears Forward/Reverse", "Max Travel Speed Forward (km/h)", "Articulation Angle (°)", "Turning Radius outside tires (mm)", "Tire Size",
         "Linkage Type (Z-Bar / Parallel)", "Hinge Pin Height at Max Lift (mm)", "Dump Clearance at Max Lift (mm)", "Reach at Max Lift (mm)", "Overall Length (mm)", "Wheelbase (mm)", "Overall Width (mm)",
         "Fuel Tank (l)", "Hydraulic Tank (l)", "DEF/AdBlue Tank (l)"
+    ],
+    "Mining Excavator": [
+        "Engine Make/Model", "Number of Engines", "Gross Power (kW)", "Electric Motor Power (kW)", "Displacement (L)", "Number of Cylinders",
+        "Operating Weight - Backhoe (kg)", "Operating Weight - Face Shovel (kg)", "Counterweight (kg)",
+        "Standard Bucket Capacity - Backhoe (m3)", "Standard Bucket Capacity - Face Shovel (m3)",
+        "Breakout Force (kN)", "Tearout Force (kN)", "Swing Speed (rpm)", "Swing Torque (kNm)", "Traction Force (kN)",
+        "Main Pumps Total Flow (l/min)", "System Pressure (bar)", "Swing Circuit Pressure (bar)",
+        "Max Digging Depth (mm)", "Max Reach at Ground Level (mm)", "Max Dump Height (mm)", "Max Digging Height (mm)",
+        "Track Gauge (mm)", "Track Shoe Width (mm)", "Overall Width (mm)", "Tail Swing Radius (mm)", "Ground Clearance (mm)", "Number of Track Rollers",
+        "Fuel Tank (l)", "Hydraulic System (l)", "Cooling System (l)", "Engine Oil (l)"
     ]
 }
 
@@ -637,6 +650,8 @@ elif app_mode == "Product Comparison":
                 default_params = ["Operating Weight (kg)", "Net Power (kW)", "Max Digging Depth (mm)", "Breakout Force - Bucket (kN)", "AUX 1 Flow (l/min)"]
             elif arena_type == "Wheeled Excavator":
                 default_params = ["Operating Weight with Blade (kg)", "Net Power (kW)", "Max Travel Speed High (km/h)", "Breakout Force (kN)", "Tail Swing Radius (mm)"]
+            elif arena_type == "Mining Excavator":
+                default_params = ["Operating Weight - Backhoe (kg)", "Gross Power (kW)", "Standard Bucket Capacity - Backhoe (m3)", "Breakout Force (kN)", "Max Digging Depth (mm)"]
             else:
                 default_params = ["Operating Weight (kg)", "Rated Payload (kg)", "Static Tipping Load - Full Turn (kg)", "Standard Bucket Capacity Heaped (m3)", "Total Cycle Time (s)"]
                 
