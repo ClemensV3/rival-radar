@@ -9,7 +9,7 @@ import time
 import altair as alt
 import feedparser
 import urllib.parse
-from youtubesearchpython import VideosSearch
+import urllib.request
 from youtube_transcript_api import YouTubeTranscriptApi
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -253,6 +253,41 @@ def get_template_path():
             if "sany" in file.lower() and file.endswith(".pptx") and not file.startswith("._") and not file.startswith("."):
                 return os.path.join(root, file)
     return None
+
+# --- Custom YouTube Scraper (Replaces buggy youtube-search-python) ---
+def custom_youtube_search(query, time_filter="Any Time", limit=5):
+    # Determine the time filter parameter for YouTube
+    sp_param = ""
+    if time_filter == "Last 12 Months":
+        sp_param = "&sp=EgQIBBAB"  # YouTube's "This Year" filter
+    elif time_filter == "Last 30 Days":
+        sp_param = "&sp=EgQIBRAB"  # YouTube's "This Month" filter
+
+    url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}{sp_param}"
+    
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        html = urllib.request.urlopen(req).read().decode('utf-8')
+        
+        # Extract Video IDs using Regex
+        video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html)
+        unique_ids = list(dict.fromkeys(video_ids)) # Remove duplicates, preserve order
+        
+        results = []
+        for vid in unique_ids[:limit]:
+            # Try to extract the title, fallback if regex fails
+            title_match = re.search(r'"videoId":"' + vid + r'".*?"title":\{"runs":\[\{"text":"([^"]+)"', html)
+            title = title_match.group(1) if title_match else f"YouTube Video ({vid})"
+            
+            results.append({
+                'id': vid,
+                'title': title,
+                'link': f"https://www.youtube.com/watch?v={vid}"
+            })
+        return results
+    except Exception as e:
+        print(f"Custom YouTube search failed: {e}")
+        return []
 
 # --- PPT GENERATOR FOR PRODUCT COMPARISON ---
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
@@ -728,12 +763,16 @@ elif app_mode == "Video Intelligence":
     st.markdown("### 🎬 VIDEO INTELLIGENCE (OPERATOR SENTIMENT)")
     st.error("Extract unfiltered operator opinions from YouTube. The AI pulls transcripts from the top 5 videos and auto-generates a presentation slide deck.")
 
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         target_machine = st.text_input("Target Machine / Competitor (e.g., CAT 320, Liebherr R 920):", placeholder="Enter machine model...")
     with col2:
-        region_filter = st.selectbox("Region / Language Focus:", [
+        region_filter = st.selectbox("Region / Language:", [
             "World Wide (English)", "European Market (Mixed)", "Germany (German)", "France (French)", "Italy (Italian)"
+        ])
+    with col3:
+        time_filter = st.selectbox("Upload Date:", [
+            "Any Time", "Last 12 Months", "Last 30 Days"
         ])
 
     if st.button("GENERATE VIDEO PPT DECK", type="primary", use_container_width=True):
@@ -753,12 +792,14 @@ elif app_mode == "Video Intelligence":
             elif "European" in region_filter: lang_query = "walkaround"
 
             try:
-                status_placeholder.info(f"Phase 1: Searching YouTube for top 5 videos on '{target_machine}'...")
-                videosSearch = VideosSearch(f"{target_machine} {lang_query} excavator", limit = 5)
-                results = videosSearch.result()['result']
+                search_term = f"{target_machine} {lang_query} excavator"
+                status_placeholder.info(f"Phase 1: Direct YouTube bypass to find top 5 videos on '{target_machine}' ({time_filter})...")
+                
+                # --- NEW BULLETPROOF YOUTUBE SCRAPER ---
+                results = custom_youtube_search(search_term, time_filter, limit=5)
                 
                 if not results:
-                    st.error("No videos found for this machine.")
+                    status_placeholder.error("No videos found for this machine. Try a broader search term.")
                 else:
                     model = genai.GenerativeModel(selected_model_name)
                     videos_data = []
@@ -771,23 +812,23 @@ elif app_mode == "Video Intelligence":
                         link = vid['link']
                         
                         try:
-                            # Versuche Transkript zu laden (Prio: En, De, Fr, It, Auto-Gen)
+                            # Try to load transcripts (Prio: En, De, Fr, It, Es)
                             transcript_list = YouTubeTranscriptApi.get_transcript(vid_id, languages=['en', 'de', 'fr', 'it', 'es'])
                             transcript_text = " ".join([t['text'] for t in transcript_list])
                             
-                            # AI fasst dieses Video für seine einzelne Folie zusammen
+                            # AI summarize this single video
                             prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. No markdown tables. Transcript: {transcript_text[:8000]}"
                             vid_summary = model.generate_content(prompt).text
                             full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
                             
                         except Exception as e:
-                            # Wenn Youtuber keine Untertitel erlaubt hat
+                            # Fallback if creator disabled captions
                             vid_summary = "* AI Note: No closed captions available for this video.\n* Recommend manual review by sales rep."
                             
                         videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
-                        progress_bar.progress((idx + 1) / 6) # 6 steps total (5 videos + 1 exec summary)
+                        progress_bar.progress((idx + 1) / 6) # 6 steps total
 
-                    # --- Executive Summary generieren ---
+                    # --- Generate Executive Summary ---
                     status_placeholder.info("Phase 3: Generating Global Executive Summary...")
                     exec_prompt = f"""
                     You are a Market Intelligence Analyst for SANY Europe. 
@@ -803,7 +844,7 @@ elif app_mode == "Video Intelligence":
                     exec_summary_text = model.generate_content(exec_prompt).text
                     progress_bar.progress(1.0)
                     
-                    # --- Save to session state so user can download ---
+                    # Save to session state
                     st.session_state.video_intel_videos = videos_data
                     st.session_state.video_intel_summary = exec_summary_text
                     st.session_state.video_intel_machine = target_machine
@@ -813,7 +854,7 @@ elif app_mode == "Video Intelligence":
             except Exception as e:
                 st.error(f"Process failed: {e}")
 
-    # Wenn der Report im Cache ist, biete Download und Preview an
+    # Display Report & Download Button if cache exists
     if st.session_state.get("video_intel_summary"):
         st.markdown("---")
         st.markdown("#### 🧠 AI EXECUTIVE SUMMARY (PREVIEW)")
