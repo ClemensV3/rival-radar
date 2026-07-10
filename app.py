@@ -9,8 +9,6 @@ import time
 import altair as alt
 import feedparser
 import urllib.parse
-import urllib.request
-import html
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
@@ -247,41 +245,6 @@ def get_template_path():
                 return os.path.join(root, file)
     return None
 
-def custom_youtube_search(query, time_filter="Any Time", limit=5):
-    sp_param = ""
-    if time_filter == "Last 12 Months":
-        sp_param = "&sp=EgQIBBAB"  
-    elif time_filter == "Last 30 Days":
-        sp_param = "&sp=EgQIBRAB"  
-
-    url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}{sp_param}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Cookie': 'CONSENT=YES+cb.20230101-11-p0.en+FX+999; SOCS=CAI;' 
-    }
-    
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        html_content = urllib.request.urlopen(req).read().decode('utf-8')
-        
-        video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html_content)
-        unique_ids = list(dict.fromkeys(video_ids)) 
-        
-        results = []
-        for vid in unique_ids[:limit]:
-            title_match = re.search(r'"videoId":"' + vid + r'".*?"title":\{"runs":\[\{"text":"([^"]+)"', html_content)
-            title = title_match.group(1) if title_match else f"YouTube Video ({vid})"
-            
-            results.append({
-                'id': vid,
-                'title': title,
-                'link': f"https://www.youtube.com/watch?v={vid}"
-            })
-        return results
-    except Exception as e:
-        print(f"Custom YouTube search failed: {e}")
-        return []
-
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     if not template_path:
@@ -496,7 +459,6 @@ if "ai_analysis_cache" not in st.session_state: st.session_state.ai_analysis_cac
 if "video_intel_videos" not in st.session_state: st.session_state.video_intel_videos = []
 if "video_intel_summary" not in st.session_state: st.session_state.video_intel_summary = ""
 if "video_intel_machine" not in st.session_state: st.session_state.video_intel_machine = ""
-if "yt_search_results" not in st.session_state: st.session_state.yt_search_results = []
 
 st.sidebar.markdown("### NAVIGATION")
 app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar", "Video Intelligence"])
@@ -754,60 +716,20 @@ elif app_mode == "News Radar":
 
 elif app_mode == "Video Intelligence":
     st.markdown("### 🎬 VIDEO INTELLIGENCE (R&D OPERATOR SENTIMENT)")
-    st.error("R&D Focus: Find relevant Walkarounds on YouTube, extract Transcripts manually, and auto-generate R&D Countermeasure PPTs.")
+    st.error("R&D Focus: Paste manual YouTube transcripts or operator notes to auto-generate R&D Fact PPTs.")
 
-    st.markdown("#### 1. YOUTUBE VIDEO SEARCH")
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-    with col1:
-        target_machine = st.text_input("Target Machine / Competitor:", placeholder="e.g., CAT 320, Liebherr R 920")
-    with col2:
-        region_filter = st.selectbox("Region / Language:", ["World Wide (English)", "European Market (Mixed)", "Germany (German)", "France (French)", "Italy (Italian)"])
-    with col3:
-        time_filter = st.selectbox("Upload Date:", ["Any Time", "Last 12 Months", "Last 30 Days"])
-    with col4:
-        search_limit = st.number_input("Max Results", min_value=1, max_value=10, value=5)
-
-    if st.button("🔍 SEARCH YOUTUBE VIDEOS", type="primary", use_container_width=True):
-        if not target_machine:
-            st.warning("Please enter a target machine to scan.")
-        else:
-            with st.spinner(f"Searching YouTube for {target_machine} Walkarounds..."):
-                lang_query = "review OR walkaround"
-                if "German" in region_filter: lang_query = "testbericht OR erfahrungen OR walkaround"
-                elif "French" in region_filter: lang_query = "avis OR essai OR walkaround"
-                elif "Italian" in region_filter: lang_query = "recensione OR prova"
-                elif "European" in region_filter: lang_query = "walkaround"
-
-                search_term = f"{target_machine} {lang_query} excavator"
-                results = custom_youtube_search(search_term, time_filter, limit=search_limit)
-                
-                if results:
-                    st.session_state.yt_search_results = results
-                else:
-                    st.error("No videos found. Try a broader search term.")
-
-    # Display Search Results
-    if st.session_state.get("yt_search_results"):
-        st.markdown("**Found Videos (Click to open, copy transcript):**")
-        for vid in st.session_state.yt_search_results:
-            st.markdown(f"- 🔗 **[{vid['title']}]({vid['link']})**")
+    target_machine = st.text_input("Target Machine / Competitor (e.g., CAT 320, Liebherr R 920):", placeholder="Enter machine model...")
             
     st.markdown("---")
-    
-    st.markdown("#### 2. TRANSCRIPT PROCESSING & PPT GENERATION")
-    num_videos = st.number_input("How many transcripts do you want to feed?", min_value=1, max_value=5, value=len(st.session_state.get("yt_search_results", [])) if st.session_state.get("yt_search_results") else 3)
+    st.markdown("#### TRANSCRIPT PROCESSING & PPT GENERATION")
+    num_videos = st.number_input("How many transcripts do you want to feed?", min_value=1, max_value=5, value=3)
     
     st.info("Paste your copied YouTube transcripts or notes below. The AI will extract factual R&D data and format it into a PPT.")
     
     manual_inputs = []
     for i in range(num_videos):
         with st.expander(f"Data Feed - Source {i+1}", expanded=True):
-            # Try to pre-fill titles from search results if available
-            default_title = ""
-            if st.session_state.get("yt_search_results") and i < len(st.session_state.yt_search_results):
-                default_title = st.session_state.yt_search_results[i]['link']
-                
-            v_title = st.text_input(f"Source Link or Title (will appear on PPT slide)", value=default_title, placeholder="e.g. https://youtube.com/...", key=f"mtitle_{i}")
+            v_title = st.text_input(f"Source Link or Title (will appear on PPT slide)", placeholder="e.g. https://youtube.com/...", key=f"mtitle_{i}")
             v_text = st.text_area(f"Raw Transcript / Notes", placeholder="Paste the raw text here...", height=150, key=f"mtext_{i}")
             manual_inputs.append({"title": v_title, "link": v_title, "text": v_text})
 
@@ -858,7 +780,6 @@ elif app_mode == "Video Intelligence":
                 st.session_state.video_intel_machine = target_machine
                 status_placeholder.success("✅ R&D Analysis Complete! Pitch Deck is ready.")
 
-    # Shared Output UI
     if st.session_state.get("video_intel_summary"):
         st.markdown("---")
         st.markdown("#### 🧠 R&D EXECUTIVE SUMMARY (PREVIEW)")
