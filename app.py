@@ -15,10 +15,8 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
 
-# 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide")
 
-# --- CUSTOM CSS FOR SANY LOOK, RADAR & RED ALERTS ---
 st.markdown("""
 <style>
     /* Global Font Size Boost */
@@ -130,7 +128,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Massive Header acting as Home Button
 st.markdown("""
 <a href="?" target="_self" class="header-link" title="Click to reset App">
     <div class="radar-container">
@@ -141,8 +138,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("<h4 class='subtitle-text'>[ AI-POWERED COMPETITOR ANALYSIS SYSTEM ]</h4>", unsafe_allow_html=True)
 st.markdown("---")
-
-# --- MACHINE DATA DEFINITIONS ---
 
 MACHINE_TYPES = ["Tracked Excavator", "Wheeled Excavator", "Wheel Loader", "Mining Excavator"]
 
@@ -203,7 +198,6 @@ PARAMS = {
     ]
 }
 
-# --- DATABASE SETUP & GITHUB SYNC ---
 DB_FILE = "machine_database.json"
 
 def load_db():
@@ -235,7 +229,6 @@ def save_db(data):
 
 db = load_db()
 
-# --- HELPER FOR CHARTS & PPT ---
 def extract_number(val):
     if isinstance(val, (int, float)):
         return float(val)
@@ -254,14 +247,13 @@ def get_template_path():
                 return os.path.join(root, file)
     return None
 
-# --- Custom YouTube Scraper (Replaces buggy youtube-search-python) ---
 def custom_youtube_search(query, time_filter="Any Time", limit=5):
     # Determine the time filter parameter for YouTube
     sp_param = ""
     if time_filter == "Last 12 Months":
-        sp_param = "&sp=EgQIBBAB"  # YouTube's "This Year" filter
+        sp_param = "&sp=EgQIBBAB"  
     elif time_filter == "Last 30 Days":
-        sp_param = "&sp=EgQIBRAB"  # YouTube's "This Month" filter
+        sp_param = "&sp=EgQIBRAB"  
 
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}{sp_param}"
     
@@ -271,11 +263,10 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
         
         # Extract Video IDs using Regex
         video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html)
-        unique_ids = list(dict.fromkeys(video_ids)) # Remove duplicates, preserve order
+        unique_ids = list(dict.fromkeys(video_ids)) 
         
         results = []
         for vid in unique_ids[:limit]:
-            # Try to extract the title, fallback if regex fails
             title_match = re.search(r'"videoId":"' + vid + r'".*?"title":\{"runs":\[\{"text":"([^"]+)"', html)
             title = title_match.group(1) if title_match else f"YouTube Video ({vid})"
             
@@ -289,7 +280,6 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
         print(f"Custom YouTube search failed: {e}")
         return []
 
-# --- PPT GENERATOR FOR PRODUCT COMPARISON ---
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     if not template_path:
@@ -381,6 +371,8 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
             if tf_content:
                 tf_content.text = "" 
                 tf_content.word_wrap = True
+                try: tf_content.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+                except: pass
                 
                 lines = ai_text.split('\n')
                 first_paragraph = True
@@ -403,7 +395,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     ppt_stream.seek(0)
     return ppt_stream
 
-# --- PPT GENERATOR FOR VIDEO INTELLIGENCE ---
 def create_video_intel_deck(target_machine, videos_data, exec_summary):
     template_path = get_template_path()
     if not template_path: prs = Presentation() 
@@ -430,21 +421,20 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
         slide = prs.slides.add_slide(content_layout)
         if slide.shapes.title: slide.shapes.title.text = vid['title'][:50] + "..."
         
-        # Find content text frame
         tf = None
         for shape in slide.shapes:
             if shape.has_text_frame and shape != slide.shapes.title:
                 tf = shape.text_frame
                 break
         if not tf:
-            left = top = Inches(1)
-            width, height = Inches(8), Inches(5)
-            txBox = slide.shapes.add_textbox(left, top, width, height)
+            txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(5))
             tf = txBox.text_frame
 
         tf.text = f"Video Link: {vid['link']}\n\n"
         tf.word_wrap = True
-        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        try: tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        except: pass
+
         p = tf.paragraphs[0]
         p.font.size = Pt(14)
         p.font.bold = True
@@ -452,16 +442,14 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
         # Add AI Summary Points (Cleaned from Markdown)
         lines = vid['summary'].split('\n')
         for line in lines:
-            # Clean markdown artifacts like **, ###, #
             line = line.strip().replace('**', '').replace('### ', '').replace('## ', '').replace('# ', '')
             if line:
                 p = tf.add_paragraph()
-                p.text = line
-                # Check if it's a bullet point
                 if line.startswith('* ') or line.startswith('- '):
-                    p.text = line[2:] # Remove the bullet symbol itself
+                    p.text = line[2:] 
                     p.level = 1
                 else:
+                    p.text = line
                     p.level = 0
                 p.font.size = Pt(16)
 
@@ -480,17 +468,16 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
 
     tf.text = ""
     tf.word_wrap = True
-    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    try: tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    except: pass
     
     lines = exec_summary.split('\n')
     for line in lines:
-        # Clean markdown artifacts
         line = line.strip().replace('**', '').replace('### ', '').replace('## ', '').replace('# ', '')
         if line:
             p = tf.add_paragraph()
-            # Check if it's a bullet point
             if line.startswith('* ') or line.startswith('- '):
-                p.text = line[2:] # Remove bullet symbol
+                p.text = line[2:] 
                 p.level = 1
             else:
                 p.text = line
@@ -505,8 +492,6 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
     ppt_stream.seek(0)
     return ppt_stream
 
-
-# --- DYNAMIC STATE VARIABLES ---
 if "custom_params" not in st.session_state:
     st.session_state.custom_params = {}
     for mt in MACHINE_TYPES:
@@ -517,7 +502,6 @@ if "video_intel_videos" not in st.session_state: st.session_state.video_intel_vi
 if "video_intel_summary" not in st.session_state: st.session_state.video_intel_summary = ""
 if "video_intel_machine" not in st.session_state: st.session_state.video_intel_machine = ""
 
-# --- SIDEBAR ---
 st.sidebar.markdown("### NAVIGATION")
 app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar", "Video Intelligence"])
 st.sidebar.markdown("---")
@@ -545,7 +529,6 @@ if api_key:
 
 st.sidebar.markdown("---")
 
-# ================= VIEW 1: SCANNER =================
 if app_mode == "Scanner":
     st.markdown("### UPLOAD DATASHEETS")
     selected_machine_type = st.radio("Configure AI Brain For:", MACHINE_TYPES, horizontal=True)
@@ -611,7 +594,6 @@ if app_mode == "Scanner":
             time.sleep(2)
             st.rerun()
 
-# ================= VIEW 2: DATABASE =================
 elif app_mode == "Database":
     st.markdown("### MACHINE DATABASE (LIVE EDITOR)")
     if db:
@@ -662,7 +644,6 @@ elif app_mode == "Database":
         st.download_button("DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
     else: st.error("The database is currently empty.")
 
-# ================= VIEW 3: PRODUCT COMPARISON =================
 elif app_mode == "Product Comparison":
     st.markdown("### PRODUCT COMPARISON (THE ARENA)")
     if not db: st.error("No data available yet.")
@@ -738,7 +719,6 @@ elif app_mode == "Product Comparison":
                 ppt_file = create_pitch_deck(baseline_name, [db[k]['Machine'] for k in competitors_sel], st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
                 st.download_button("DOWNLOAD PITCH DECK (.pptx)", data=ppt_file.getvalue(), file_name=f"SANY_Pitch_{baseline_name}.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation", use_container_width=True, type="primary")
 
-# ================= VIEW 4: NEWS RADAR =================
 elif app_mode == "News Radar":
     st.markdown("### 📡 OEM NEWS RADAR")
     oem_list = ["Caterpillar", "Komatsu", "Volvo Construction Equipment", "Liebherr", "Develon", "Yanmar", "Kubota", "Hitachi Construction Machinery"]
@@ -776,7 +756,6 @@ elif app_mode == "News Radar":
                         except Exception as e: st.error(f"AI Briefing failed: {e}")
                 except Exception as e: st.error(f"Radar sweep failed. Signal lost: {e}")
 
-# ================= VIEW 5: VIDEO INTELLIGENCE =================
 elif app_mode == "Video Intelligence":
     st.markdown("### 🎬 VIDEO INTELLIGENCE (OPERATOR SENTIMENT)")
     st.error("Extract unfiltered operator opinions from YouTube. The AI pulls transcripts from the top 5 videos and auto-generates a presentation slide deck.")
@@ -813,7 +792,6 @@ elif app_mode == "Video Intelligence":
                 search_term = f"{target_machine} {lang_query} excavator"
                 status_placeholder.info(f"Phase 1: Direct YouTube bypass to find top 5 videos on '{target_machine}' ({time_filter})...")
                 
-                # --- NEW BULLETPROOF YOUTUBE SCRAPER ---
                 results = custom_youtube_search(search_term, time_filter, limit=5)
                 
                 if not results:
@@ -830,26 +808,22 @@ elif app_mode == "Video Intelligence":
                         link = vid['link']
                         
                         try:
-                            # --- ROBUST TRANSCRIPT FORCER ---
-                            transcript_list = YouTubeTranscriptApi.list_transcripts(vid_id)
-                            try:
-                                # Versuche zuerst eine manuelle oder Auto-Übersetzung in unseren Hauptsprachen
-                                transcript = transcript_list.find_transcript(['en', 'de', 'fr', 'it', 'es'])
-                            except:
-                                # Wenn das scheitert: Nimm den allerersten verfügbaren Untertitel (egal welche Sprache) und übersetze ihn live auf Englisch!
-                                transcript = list(transcript_list)[0].translate('en')
+                            # Safest method across all library versions - brute forcing the most common languages
+                            transcript_data = YouTubeTranscriptApi.get_transcript(
+                                vid_id, 
+                                languages=['en', 'en-US', 'en-GB', 'de', 'fr', 'es', 'it', 'nl', 'ru', 'zh', 'ja', 'ko', 'pt', 'tr', 'pl', 'sv', 'ar']
+                            )
                                 
-                            transcript_data = transcript.fetch()
                             transcript_text = " ".join([t['text'] for t in transcript_data])
                             
                             # AI summarize this single video
-                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. DO NOT use markdown headers like ###. Transcript: {transcript_text[:8000]}"
+                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
                             vid_summary = model.generate_content(prompt).text
                             full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
                             
                         except Exception as e:
-                            # Fallback if creator completely disabled captions
-                            vid_summary = f"* AI Note: Transcript extraction failed. Creator may have blocked captions.\n* Error: {str(e)[:50]}\n* Recommend manual review by sales rep."
+                            # Bulletproof Fallback if no captions exist
+                            vid_summary = f"* AI Note: Transcript extraction failed.\n* The video might have no spoken words or captions are disabled.\n* Recommend manual review by sales rep."
                             
                         videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
                         progress_bar.progress((idx + 1) / 6) # 6 steps total
@@ -866,6 +840,8 @@ elif app_mode == "Video Intelligence":
                     * Operator Praises (The Good):
                     * Operator Complaints (The Bad):
                     * SANY Sales Counter-Argument: (1 punchy sentence how a SANY rep can use these weaknesses to sell a SANY)
+                    
+                    CRITICAL: Do not use any markdown formatting like ### or **. Just pure text and bullet points.
                     """
                     exec_summary_text = model.generate_content(exec_prompt).text
                     progress_bar.progress(1.0)
