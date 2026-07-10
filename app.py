@@ -282,46 +282,6 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
         print(f"Custom YouTube search failed: {e}")
         return []
 
-def get_real_transcript(video_id):
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        for transcript in transcript_list:
-            try:
-                if transcript.language_code != 'en':
-                    data = transcript.translate('en').fetch()
-                else:
-                    data = transcript.fetch()
-                return " ".join([t['text'] for t in data])
-            except:
-                continue 
-    except Exception as e:
-        pass 
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Cookie': 'CONSENT=YES+cb.20230101-11-p0.en+FX+999; SOCS=CAI;' 
-    }
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        html_content = urllib.request.urlopen(req).read().decode('utf-8')
-        
-        urls = re.findall(r'"baseUrl":"([^"]+timedtext[^"]+)"', html_content)
-        if urls:
-            track_url = urls[0].replace('\\u0026', '&').replace('\\/', '/')
-            xml_req = urllib.request.Request(track_url, headers=headers)
-            xml_content = urllib.request.urlopen(xml_req).read().decode('utf-8')
-            texts = re.findall(r'<text[^>]*>(.*?)</text>', xml_content)
-            clean_texts = [html.unescape(t).replace('\n', ' ') for t in texts]
-            
-            if clean_texts:
-                return " ".join(clean_texts)
-    except Exception as e:
-        pass
-    
-    return None 
-
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     if not template_path:
@@ -450,12 +410,11 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
 
     title_slide_layout = prs.slide_layouts[0]
     slide = prs.slides.add_slide(title_slide_layout)
-    if slide.shapes.title: slide.shapes.title.text = "Video Intelligence Report"
-    if len(slide.placeholders) > 1: slide.placeholders[1].text = f"Target Machine: {target_machine.upper()}\nGlobal Operator Sentiment"
+    if slide.shapes.title: slide.shapes.title.text = "R&D Operator Feedback Report"
+    if len(slide.placeholders) > 1: slide.placeholders[1].text = f"Target Machine: {target_machine.upper()}\nGlobal Field Insights"
 
     for vid in videos_data:
         slide = prs.slides.add_slide(content_layout)
-        # Use link as title if actual title is missing or generic
         display_title = vid.get('title', vid['link'])[:60] + "..." if len(vid.get('title', vid['link'])) > 60 else vid.get('title', vid['link'])
         if slide.shapes.title: slide.shapes.title.text = display_title
         
@@ -489,11 +448,9 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
                     p.text = line
                     p.level = 0
                 p.font.size = Pt(16)
-                if "[SYSTEM WARNING]" in line:
-                    p.font.color.rgb = Pt(16)
 
     slide = prs.slides.add_slide(content_layout)
-    if slide.shapes.title: slide.shapes.title.text = "Executive Summary & Strategy"
+    if slide.shapes.title: slide.shapes.title.text = "R&D Executive Summary"
     
     tf = None
     for shape in slide.shapes:
@@ -522,7 +479,7 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
                 p.level = 0
                 
             p.font.size = Pt(16)
-            if "The Good" in line or "The Bad" in line or "SANY" in line:
+            if "The Good" in line or "The Bad" in line:
                 p.font.bold = True
 
     ppt_stream = io.BytesIO()
@@ -539,6 +496,7 @@ if "ai_analysis_cache" not in st.session_state: st.session_state.ai_analysis_cac
 if "video_intel_videos" not in st.session_state: st.session_state.video_intel_videos = []
 if "video_intel_summary" not in st.session_state: st.session_state.video_intel_summary = ""
 if "video_intel_machine" not in st.session_state: st.session_state.video_intel_machine = ""
+if "yt_search_results" not in st.session_state: st.session_state.yt_search_results = []
 
 st.sidebar.markdown("### NAVIGATION")
 app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar", "Video Intelligence"])
@@ -795,144 +753,119 @@ elif app_mode == "News Radar":
                 except Exception as e: st.error(f"Radar sweep failed. Signal lost: {e}")
 
 elif app_mode == "Video Intelligence":
-    st.markdown("### 🎬 VIDEO INTELLIGENCE (OPERATOR SENTIMENT)")
-    st.error("Extract unfiltered operator opinions from YouTube. Generate powerful PPT decks.")
+    st.markdown("### 🎬 VIDEO INTELLIGENCE (R&D OPERATOR SENTIMENT)")
+    st.error("R&D Focus: Find relevant Walkarounds on YouTube, extract Transcripts manually, and auto-generate R&D Countermeasure PPTs.")
 
-    extraction_mode = st.radio("Data Extraction Mode:", ["📡 Auto-Sniper (Beta - May be blocked by YouTube)", "✍️ Manual Feed (100% Reliable)"], horizontal=True)
-    st.markdown("---")
+    st.markdown("#### 1. YOUTUBE VIDEO SEARCH")
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        target_machine = st.text_input("Target Machine / Competitor:", placeholder="e.g., CAT 320, Liebherr R 920")
+    with col2:
+        region_filter = st.selectbox("Region / Language:", ["World Wide (English)", "European Market (Mixed)", "Germany (German)", "France (French)", "Italy (Italian)"])
+    with col3:
+        time_filter = st.selectbox("Upload Date:", ["Any Time", "Last 12 Months", "Last 30 Days"])
+    with col4:
+        search_limit = st.number_input("Max Results", min_value=1, max_value=10, value=5)
 
-    if "Auto-Sniper" in extraction_mode:
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            target_machine = st.text_input("Target Machine / Competitor (e.g., CAT 320, Liebherr R 920):", placeholder="Enter machine model...")
-        with col2:
-            region_filter = st.selectbox("Region / Language:", ["World Wide (English)", "European Market (Mixed)", "Germany (German)", "France (French)", "Italy (Italian)"])
-        with col3:
-            time_filter = st.selectbox("Upload Date:", ["Any Time", "Last 12 Months", "Last 30 Days"])
-
-        if st.button("GENERATE VIDEO PPT DECK (AUTO)", type="primary", use_container_width=True):
-            if not api_key:
-                st.error("ACCESS DENIED: Please provide a valid API Key.")
-            elif not target_machine:
-                st.warning("Please enter a target machine to scan.")
-            else:
-                status_placeholder = st.empty()
-                progress_bar = st.progress(0)
-                
-                lang_query = "review"
-                if "German" in region_filter: lang_query = "testbericht OR erfahrungen"
-                elif "French" in region_filter: lang_query = "avis OR essai"
+    if st.button("🔍 SEARCH YOUTUBE VIDEOS", type="primary", use_container_width=True):
+        if not target_machine:
+            st.warning("Please enter a target machine to scan.")
+        else:
+            with st.spinner(f"Searching YouTube for {target_machine} Walkarounds..."):
+                lang_query = "review OR walkaround"
+                if "German" in region_filter: lang_query = "testbericht OR erfahrungen OR walkaround"
+                elif "French" in region_filter: lang_query = "avis OR essai OR walkaround"
                 elif "Italian" in region_filter: lang_query = "recensione OR prova"
                 elif "European" in region_filter: lang_query = "walkaround"
 
-                try:
-                    search_term = f"{target_machine} {lang_query} excavator"
-                    status_placeholder.info(f"Phase 1: Direct YouTube bypass to find top 5 videos on '{target_machine}'...")
-                    
-                    results = custom_youtube_search(search_term, time_filter, limit=5)
-                    
-                    if not results:
-                        status_placeholder.error("No videos found for this machine. Try a broader search term.")
-                    else:
-                        model = genai.GenerativeModel(selected_model_name)
-                        videos_data = []
-                        full_transcripts_for_exec = ""
-                        
-                        for idx, vid in enumerate(results):
-                            status_placeholder.info(f"Phase 2: Extracting REAL transcript for Video {idx+1}/5...")
-                            title, link = vid['title'], vid['link']
-                            transcript_text = get_real_transcript(vid['id'])
-                            
-                            if transcript_text:
-                                prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
-                                vid_summary = model.generate_content(prompt).text
-                                full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
-                            else:
-                                vid_summary = "* [SYSTEM WARNING]: Real operator feedback could not be extracted.\n* YouTube blocked the transcript or no speech was detected.\n* Video skipped to maintain data integrity."
-                                
-                            videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
-                            progress_bar.progress((idx + 1) / 6)
-
-                        status_placeholder.info("Phase 3: Generating Global Executive Summary...")
-                        exec_prompt = f"You are a Market Intelligence Analyst for SANY Europe. Based on these 5 video summaries regarding the {target_machine}, create an executive summary.\nIgnore any summaries that say [SYSTEM WARNING].\n{full_transcripts_for_exec}\nFormat exactly with these headers (English only, bullet points):\n* Operator Praises (The Good):\n* Operator Complaints (The Bad):\n* SANY Sales Counter-Argument: (1 punchy sentence how a SANY rep can use these weaknesses to sell a SANY)\nCRITICAL: Do not use any markdown formatting like ### or **."
-                        exec_summary_text = model.generate_content(exec_prompt).text
-                        progress_bar.progress(1.0)
-                        
-                        st.session_state.video_intel_videos = videos_data
-                        st.session_state.video_intel_summary = exec_summary_text
-                        st.session_state.video_intel_machine = target_machine
-                        status_placeholder.success("✅ Analysis Complete! Pitch Deck is ready.")
-                except Exception as e: st.error(f"Process failed: {e}")
-
-    else:
-        # MANUAL FEED MODE
-        target_machine = st.text_input("Target Machine / Competitor (e.g., CAT 320, Liebherr R 920):", placeholder="Enter machine model...", key="manual_target")
-        num_videos = st.number_input("How many videos/transcripts do you want to feed?", min_value=1, max_value=5, value=3)
-        
-        st.info("Paste your raw notes, forum posts, or copy-pasted video transcripts below. The AI will perfectly format them for the PPT.")
-        
-        manual_inputs = []
-        for i in range(num_videos):
-            with st.expander(f"Data Feed - Source {i+1}", expanded=True):
-                v_title = st.text_input(f"Source Title or Link (will appear on PPT slide)", placeholder="e.g. Dirt Ninja Review on YouTube", key=f"mtitle_{i}")
-                v_text = st.text_area(f"Raw Transcript / Notes", placeholder="Paste the raw text here...", height=150, key=f"mtext_{i}")
-                manual_inputs.append({"title": v_title, "link": v_title, "text": v_text})
-
-        if st.button("GENERATE VIDEO PPT DECK (MANUAL)", type="primary", use_container_width=True):
-            if not api_key:
-                st.error("ACCESS DENIED: Please provide a valid API Key.")
-            elif not target_machine:
-                st.warning("Please enter a target machine.")
-            else:
-                valid_inputs = [m for m in manual_inputs if m['text'].strip()]
-                if not valid_inputs:
-                    st.warning("Please provide at least one transcript or note.")
+                search_term = f"{target_machine} {lang_query} excavator"
+                results = custom_youtube_search(search_term, time_filter, limit=search_limit)
+                
+                if results:
+                    st.session_state.yt_search_results = results
                 else:
-                    status_placeholder = st.empty()
-                    progress_bar = st.progress(0)
-                    model = genai.GenerativeModel(selected_model_name)
-                    
-                    videos_data = []
-                    full_transcripts_for_exec = ""
-                    
-                    for idx, source in enumerate(valid_inputs):
-                        status_placeholder.info(f"Phase 1: Structuring data for Source {idx+1}/{len(valid_inputs)}...")
-                        title = source['title'] if source['title'].strip() else f"Manual Feed {idx+1}"
-                        
-                        prompt = f"Summarize this raw text regarding the construction machine '{target_machine}'. Extract exactly 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Raw Text: {source['text'][:8000]}"
-                        
-                        try:
-                            vid_summary = model.generate_content(prompt).text
-                        except Exception as e:
-                            vid_summary = f"* Error processing manual feed: {e}"
-                            
-                        full_transcripts_for_exec += f"\n\nSource: {title}\nSummary: {vid_summary}"
-                        videos_data.append({'title': title, 'link': title, 'summary': vid_summary})
-                        progress_bar.progress((idx + 1) / (len(valid_inputs) + 1))
+                    st.error("No videos found. Try a broader search term.")
 
-                    status_placeholder.info("Phase 2: Generating Global Executive Summary...")
-                    exec_prompt = f"You are a Market Intelligence Analyst for SANY Europe. Based on these summaries regarding the {target_machine}, create an executive summary.\n{full_transcripts_for_exec}\nFormat exactly with these headers (English only, bullet points):\n* Operator Praises (The Good):\n* Operator Complaints (The Bad):\n* SANY Sales Counter-Argument: (1 punchy sentence how a SANY rep can use these weaknesses to sell a SANY)\nCRITICAL: Do not use any markdown formatting like ### or **."
+    # Display Search Results
+    if st.session_state.get("yt_search_results"):
+        st.markdown("**Found Videos (Click to open, copy transcript):**")
+        for vid in st.session_state.yt_search_results:
+            st.markdown(f"- 🔗 **[{vid['title']}]({vid['link']})**")
+            
+    st.markdown("---")
+    
+    st.markdown("#### 2. TRANSCRIPT PROCESSING & PPT GENERATION")
+    num_videos = st.number_input("How many transcripts do you want to feed?", min_value=1, max_value=5, value=len(st.session_state.get("yt_search_results", [])) if st.session_state.get("yt_search_results") else 3)
+    
+    st.info("Paste your copied YouTube transcripts or notes below. The AI will extract factual R&D data and format it into a PPT.")
+    
+    manual_inputs = []
+    for i in range(num_videos):
+        with st.expander(f"Data Feed - Source {i+1}", expanded=True):
+            # Try to pre-fill titles from search results if available
+            default_title = ""
+            if st.session_state.get("yt_search_results") and i < len(st.session_state.yt_search_results):
+                default_title = st.session_state.yt_search_results[i]['link']
+                
+            v_title = st.text_input(f"Source Link or Title (will appear on PPT slide)", value=default_title, placeholder="e.g. https://youtube.com/...", key=f"mtitle_{i}")
+            v_text = st.text_area(f"Raw Transcript / Notes", placeholder="Paste the raw text here...", height=150, key=f"mtext_{i}")
+            manual_inputs.append({"title": v_title, "link": v_title, "text": v_text})
+
+    if st.button("⚙️ GENERATE R&D PPT DECK", type="primary", use_container_width=True):
+        if not api_key:
+            st.error("ACCESS DENIED: Please provide a valid API Key.")
+        elif not target_machine:
+            st.warning("Please enter a target machine in the search bar above.")
+        else:
+            valid_inputs = [m for m in manual_inputs if m['text'].strip()]
+            if not valid_inputs:
+                st.warning("Please provide at least one transcript or note.")
+            else:
+                status_placeholder = st.empty()
+                progress_bar = st.progress(0)
+                model = genai.GenerativeModel(selected_model_name)
+                
+                videos_data = []
+                full_transcripts_for_exec = ""
+                
+                for idx, source in enumerate(valid_inputs):
+                    status_placeholder.info(f"Phase 1: Structuring R&D data for Source {idx+1}/{len(valid_inputs)}...")
+                    title = source['title'] if source['title'].strip() else f"Manual Feed {idx+1}"
+                    
+                    prompt = f"Summarize this raw text regarding the construction machine '{target_machine}'. Extract exactly 3 to 4 short, punchy bullet points highlighting factual operator feedback, mechanical issues, hydraulic performance, or ergonomic design (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Raw Text: {source['text'][:8000]}"
                     
                     try:
-                        exec_summary_text = model.generate_content(exec_prompt).text
+                        vid_summary = model.generate_content(prompt).text
                     except Exception as e:
-                        exec_summary_text = f"Error generating executive summary: {e}"
+                        vid_summary = f"* Error processing manual feed: {e}"
                         
-                    progress_bar.progress(1.0)
-                    
-                    st.session_state.video_intel_videos = videos_data
-                    st.session_state.video_intel_summary = exec_summary_text
-                    st.session_state.video_intel_machine = target_machine
-                    status_placeholder.success("✅ Manual Analysis Complete! Pitch Deck is ready.")
+                    full_transcripts_for_exec += f"\n\nSource: {title}\nSummary: {vid_summary}"
+                    videos_data.append({'title': title, 'link': title, 'summary': vid_summary})
+                    progress_bar.progress((idx + 1) / (len(valid_inputs) + 1))
 
-    # Shared Output UI for both Auto and Manual
+                status_placeholder.info("Phase 2: Generating Global R&D Executive Summary...")
+                exec_prompt = f"You are a Senior R&D Engineer and Market Analyst for SANY Europe. Based on these transcript summaries regarding the {target_machine}, create an executive summary focusing strictly on factual engineering and usability feedback.\n{full_transcripts_for_exec}\nFormat exactly with these headers (English only, bullet points):\n* Operator Praises (The Good):\n* Operator Complaints (The Bad):\nCRITICAL: Do not use any markdown formatting like ### or **. Do not include any recommendations, countermeasures, or sales pitches. Just list the facts."
+                
+                try:
+                    exec_summary_text = model.generate_content(exec_prompt).text
+                except Exception as e:
+                    exec_summary_text = f"Error generating executive summary: {e}"
+                    
+                progress_bar.progress(1.0)
+                
+                st.session_state.video_intel_videos = videos_data
+                st.session_state.video_intel_summary = exec_summary_text
+                st.session_state.video_intel_machine = target_machine
+                status_placeholder.success("✅ R&D Analysis Complete! Pitch Deck is ready.")
+
+    # Shared Output UI
     if st.session_state.get("video_intel_summary"):
         st.markdown("---")
-        st.markdown("#### 🧠 AI EXECUTIVE SUMMARY (PREVIEW)")
+        st.markdown("#### 🧠 R&D EXECUTIVE SUMMARY (PREVIEW)")
         st.markdown(st.session_state.video_intel_summary)
         
         st.markdown("---")
-        st.markdown("#### 📥 DOWNLOAD REPORT")
+        st.markdown("#### 📥 DOWNLOAD R&D REPORT")
         
         ppt_file = create_video_intel_deck(
             st.session_state.video_intel_machine, 
@@ -941,9 +874,9 @@ elif app_mode == "Video Intelligence":
         )
         
         st.download_button(
-            label=f"DOWNLOAD VIDEO INTELLIGENCE DECK (.pptx)",
+            label=f"DOWNLOAD R&D VIDEO INTEL DECK (.pptx)",
             data=ppt_file.getvalue(),
-            file_name=f"SANY_Video_Intel_{st.session_state.video_intel_machine.replace(' ', '_')}.pptx",
+            file_name=f"SANY_RnD_Intel_{st.session_state.video_intel_machine.replace(' ', '_')}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             use_container_width=True,
             type="primary"
