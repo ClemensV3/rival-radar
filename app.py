@@ -10,7 +10,7 @@ import altair as alt
 import feedparser
 import urllib.parse
 import urllib.request
-from youtube_transcript_api import YouTubeTranscriptApi
+import html
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
@@ -248,7 +248,6 @@ def get_template_path():
     return None
 
 def custom_youtube_search(query, time_filter="Any Time", limit=5):
-    # Determine the time filter parameter for YouTube
     sp_param = ""
     if time_filter == "Last 12 Months":
         sp_param = "&sp=EgQIBBAB"  
@@ -259,15 +258,14 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
     
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        html = urllib.request.urlopen(req).read().decode('utf-8')
+        html_content = urllib.request.urlopen(req).read().decode('utf-8')
         
-        # Extract Video IDs using Regex
-        video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html)
+        video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html_content)
         unique_ids = list(dict.fromkeys(video_ids)) 
         
         results = []
         for vid in unique_ids[:limit]:
-            title_match = re.search(r'"videoId":"' + vid + r'".*?"title":\{"runs":\[\{"text":"([^"]+)"', html)
+            title_match = re.search(r'"videoId":"' + vid + r'".*?"title":\{"runs":\[\{"text":"([^"]+)"', html_content)
             title = title_match.group(1) if title_match else f"YouTube Video ({vid})"
             
             results.append({
@@ -280,6 +278,39 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
         print(f"Custom YouTube search failed: {e}")
         return []
 
+def get_custom_transcript(video_id):
+    """
+    Bulletproof transcript extractor that bypasses the broken API package.
+    It scrapes the YouTube watch page for the hidden timedtext XML URL.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        html_content = urllib.request.urlopen(req).read().decode('utf-8')
+        
+        # Find the timedtext URL (caption track) directly in the source code
+        urls = re.findall(r'"baseUrl":"(https://www.youtube.com/api/timedtext[^"]+)"', html_content)
+        
+        if urls:
+            # Fix unicode formatting for URL encoding
+            track_url = urls[0].replace('\\u0026', '&')
+            
+            # Fetch the actual XML transcript
+            xml_req = urllib.request.Request(track_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            xml_content = urllib.request.urlopen(xml_req).read().decode('utf-8')
+            
+            # Extract plain text from the <text> tags
+            texts = re.findall(r'<text[^>]*>(.*?)</text>', xml_content)
+            
+            # Clean up HTML entities (like &#39; or &amp;)
+            clean_texts = [html.unescape(t).replace('\n', ' ') for t in texts]
+            
+            return " ".join(clean_texts)
+    except Exception as e:
+        print(f"Custom transcript extraction error for {video_id}: {e}")
+    
+    return None
+
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
     if not template_path:
@@ -288,7 +319,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
         try: prs = Presentation(template_path)
         except: prs = Presentation()
         
-    # Title Slide
     try:
         if len(prs.slides) > 0:
             slide1 = prs.slides[0]
@@ -305,7 +335,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
                     text_shapes_1[0].text_frame.text = f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}"
     except: pass
         
-    # Table Slide
     try:
         table_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
         table_slide = prs.slides.add_slide(table_layout)
@@ -349,7 +378,6 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
                 if r_idx == 0: cell.text_frame.paragraphs[0].font.bold = True
     except: pass
 
-    # AI Analysis Slide
     if ai_text:
         try:
             if len(prs.slides) > 2: slide3 = prs.slides[2]
@@ -404,19 +432,16 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
 
     content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
 
-    # Clean existing dummy slides if using template
     while len(prs.slides) > 0:
         r_id = prs.slides._sldIdLst[0].rId
         prs.part.drop_rel(r_id)
         del prs.slides._sldIdLst[0]
 
-    # Slide 1: Title
     title_slide_layout = prs.slide_layouts[0]
     slide = prs.slides.add_slide(title_slide_layout)
     if slide.shapes.title: slide.shapes.title.text = "Video Intelligence Report"
     if len(slide.placeholders) > 1: slide.placeholders[1].text = f"Target Machine: {target_machine.upper()}\nGlobal Operator Sentiment"
 
-    # Slides 2-6: Individual Videos
     for vid in videos_data:
         slide = prs.slides.add_slide(content_layout)
         if slide.shapes.title: slide.shapes.title.text = vid['title'][:50] + "..."
@@ -439,7 +464,6 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
         p.font.size = Pt(14)
         p.font.bold = True
         
-        # Add AI Summary Points (Cleaned from Markdown)
         lines = vid['summary'].split('\n')
         for line in lines:
             line = line.strip().replace('**', '').replace('### ', '').replace('## ', '').replace('# ', '')
@@ -453,7 +477,6 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
                     p.level = 0
                 p.font.size = Pt(16)
 
-    # Final Slide: Executive Summary
     slide = prs.slides.add_slide(content_layout)
     if slide.shapes.title: slide.shapes.title.text = "Executive Summary & Strategy"
     
@@ -781,7 +804,6 @@ elif app_mode == "Video Intelligence":
             status_placeholder = st.empty()
             progress_bar = st.progress(0)
             
-            # Setup search terms based on region
             lang_query = "review"
             if "German" in region_filter: lang_query = "testbericht OR erfahrungen"
             elif "French" in region_filter: lang_query = "avis OR essai"
@@ -808,27 +830,22 @@ elif app_mode == "Video Intelligence":
                         link = vid['link']
                         
                         try:
-                            # Safest method across all library versions - brute forcing the most common languages
-                            transcript_data = YouTubeTranscriptApi.get_transcript(
-                                vid_id, 
-                                languages=['en', 'en-US', 'en-GB', 'de', 'fr', 'es', 'it', 'nl', 'ru', 'zh', 'ja', 'ko', 'pt', 'tr', 'pl', 'sv', 'ar']
-                            )
-                                
-                            transcript_text = " ".join([t['text'] for t in transcript_data])
+                            # Use custom scraper to bypass library issues
+                            transcript_text = get_custom_transcript(vid_id)
                             
-                            # AI summarize this single video
-                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
-                            vid_summary = model.generate_content(prompt).text
-                            full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
+                            if transcript_text:
+                                prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
+                                vid_summary = model.generate_content(prompt).text
+                                full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
+                            else:
+                                raise Exception("No transcript data extracted")
                             
                         except Exception as e:
-                            # Bulletproof Fallback if no captions exist
                             vid_summary = f"* AI Note: Transcript extraction failed.\n* The video might have no spoken words or captions are disabled.\n* Recommend manual review by sales rep."
                             
                         videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
-                        progress_bar.progress((idx + 1) / 6) # 6 steps total
+                        progress_bar.progress((idx + 1) / 6)
 
-                    # --- Generate Executive Summary ---
                     status_placeholder.info("Phase 3: Generating Global Executive Summary...")
                     exec_prompt = f"""
                     You are a Market Intelligence Analyst for SANY Europe. 
@@ -846,7 +863,6 @@ elif app_mode == "Video Intelligence":
                     exec_summary_text = model.generate_content(exec_prompt).text
                     progress_bar.progress(1.0)
                     
-                    # Save to session state
                     st.session_state.video_intel_videos = videos_data
                     st.session_state.video_intel_summary = exec_summary_text
                     st.session_state.video_intel_machine = target_machine
@@ -856,7 +872,6 @@ elif app_mode == "Video Intelligence":
             except Exception as e:
                 st.error(f"Process failed: {e}")
 
-    # Display Report & Download Button if cache exists
     if st.session_state.get("video_intel_summary"):
         st.markdown("---")
         st.markdown("#### 🧠 AI EXECUTIVE SUMMARY (PREVIEW)")
