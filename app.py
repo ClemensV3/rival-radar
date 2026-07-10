@@ -13,7 +13,7 @@ import urllib.request
 from youtube_transcript_api import YouTubeTranscriptApi
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
 
 # 1. Page Configuration
 st.set_page_config(page_title="RivalRadar", layout="wide")
@@ -443,18 +443,26 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
             tf = txBox.text_frame
 
         tf.text = f"Video Link: {vid['link']}\n\n"
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         p = tf.paragraphs[0]
         p.font.size = Pt(14)
         p.font.bold = True
         
-        # Add AI Summary Points
+        # Add AI Summary Points (Cleaned from Markdown)
         lines = vid['summary'].split('\n')
         for line in lines:
-            line = line.strip().replace('**', '')
+            # Clean markdown artifacts like **, ###, #
+            line = line.strip().replace('**', '').replace('### ', '').replace('## ', '').replace('# ', '')
             if line:
                 p = tf.add_paragraph()
                 p.text = line
-                p.level = 1 if line.startswith('*') or line.startswith('-') else 0
+                # Check if it's a bullet point
+                if line.startswith('* ') or line.startswith('- '):
+                    p.text = line[2:] # Remove the bullet symbol itself
+                    p.level = 1
+                else:
+                    p.level = 0
                 p.font.size = Pt(16)
 
     # Final Slide: Executive Summary
@@ -471,13 +479,23 @@ def create_video_intel_deck(target_machine, videos_data, exec_summary):
         tf = txBox.text_frame
 
     tf.text = ""
+    tf.word_wrap = True
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    
     lines = exec_summary.split('\n')
     for line in lines:
-        line = line.strip().replace('**', '')
+        # Clean markdown artifacts
+        line = line.strip().replace('**', '').replace('### ', '').replace('## ', '').replace('# ', '')
         if line:
             p = tf.add_paragraph()
-            p.text = line
-            p.level = 1 if line.startswith('*') or line.startswith('-') else 0
+            # Check if it's a bullet point
+            if line.startswith('* ') or line.startswith('- '):
+                p.text = line[2:] # Remove bullet symbol
+                p.level = 1
+            else:
+                p.text = line
+                p.level = 0
+                
             p.font.size = Pt(16)
             if "The Good" in line or "The Bad" in line or "SANY" in line:
                 p.font.bold = True
@@ -812,18 +830,26 @@ elif app_mode == "Video Intelligence":
                         link = vid['link']
                         
                         try:
-                            # Try to load transcripts (Prio: En, De, Fr, It, Es)
-                            transcript_list = YouTubeTranscriptApi.get_transcript(vid_id, languages=['en', 'de', 'fr', 'it', 'es'])
-                            transcript_text = " ".join([t['text'] for t in transcript_list])
+                            # --- ROBUST TRANSCRIPT FORCER ---
+                            transcript_list = YouTubeTranscriptApi.list_transcripts(vid_id)
+                            try:
+                                # Versuche zuerst eine manuelle oder Auto-Übersetzung in unseren Hauptsprachen
+                                transcript = transcript_list.find_transcript(['en', 'de', 'fr', 'it', 'es'])
+                            except:
+                                # Wenn das scheitert: Nimm den allerersten verfügbaren Untertitel (egal welche Sprache) und übersetze ihn live auf Englisch!
+                                transcript = list(transcript_list)[0].translate('en')
+                                
+                            transcript_data = transcript.fetch()
+                            transcript_text = " ".join([t['text'] for t in transcript_data])
                             
                             # AI summarize this single video
-                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. No markdown tables. Transcript: {transcript_text[:8000]}"
+                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. DO NOT use markdown headers like ###. Transcript: {transcript_text[:8000]}"
                             vid_summary = model.generate_content(prompt).text
                             full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
                             
                         except Exception as e:
-                            # Fallback if creator disabled captions
-                            vid_summary = "* AI Note: No closed captions available for this video.\n* Recommend manual review by sales rep."
+                            # Fallback if creator completely disabled captions
+                            vid_summary = f"* AI Note: Transcript extraction failed. Creator may have blocked captions.\n* Error: {str(e)[:50]}\n* Recommend manual review by sales rep."
                             
                         videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
                         progress_bar.progress((idx + 1) / 6) # 6 steps total
