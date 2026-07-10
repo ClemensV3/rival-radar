@@ -9,6 +9,8 @@ import time
 import altair as alt
 import feedparser
 import urllib.parse
+from youtubesearchpython import VideosSearch
+from youtube_transcript_api import YouTubeTranscriptApi
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -128,7 +130,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Massive Header acting as Home Button (href="?" reloads the app)
+# 2. Massive Header acting as Home Button
 st.markdown("""
 <a href="?" target="_self" class="header-link" title="Click to reset App">
     <div class="radar-container">
@@ -252,78 +254,57 @@ def get_template_path():
                 return os.path.join(root, file)
     return None
 
+# --- PPT GENERATOR FOR PRODUCT COMPARISON ---
 def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
     template_path = get_template_path()
-    
     if not template_path:
-        st.error("CRITICAL ERROR: SANY Template (.pptx) not found on server! Creating blank fallback deck.")
         prs = Presentation() 
     else:
-        try:
-            prs = Presentation(template_path)
-        except Exception as e:
-            st.error(f"Error loading template '{template_path}': {e}")
-            prs = Presentation()
+        try: prs = Presentation(template_path)
+        except: prs = Presentation()
         
-    # --- FOLIE 1: TITEL (Platzhalter "XXX") ---
+    # Title Slide
     try:
         if len(prs.slides) > 0:
             slide1 = prs.slides[0]
             replaced_title = False
-            
             for shape in slide1.shapes:
-                if shape.has_text_frame:
-                    if "XXX" in shape.text_frame.text:
-                        shape.text_frame.text = shape.text_frame.text.replace("XXX", f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}")
-                        replaced_title = True
-                        break
-            
+                if shape.has_text_frame and "XXX" in shape.text_frame.text:
+                    shape.text_frame.text = shape.text_frame.text.replace("XXX", f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}")
+                    replaced_title = True
+                    break
             if not replaced_title:
                 text_shapes_1 = [s for s in slide1.shapes if s.has_text_frame]
                 text_shapes_1.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
                 if len(text_shapes_1) > 0:
                     text_shapes_1[0].text_frame.text = f"Tactical Product Comparison\n{baseline_name} vs. {', '.join(competitor_names)}"
-    except Exception as e:
-        print(f"Slide 1 Error: {e}")
+    except: pass
         
-    # --- FOLIE 1.5: DATENTABELLE (NEUE FOLIE) ---
+    # Table Slide
     try:
         table_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
         table_slide = prs.slides.add_slide(table_layout)
-        
         slide_id_list = prs.slides._sldIdLst
         new_slide_id = slide_id_list[-1]
         slide_id_list.remove(new_slide_id)
         slide_id_list.insert(1, new_slide_id)
         
-        title_set = False
         for shape in table_slide.shapes:
             if shape.has_text_frame and "XXXX" in shape.text_frame.text:
                 shape.text_frame.text = shape.text_frame.text.replace("XXXX", "Technical Specifications Matrix")
-                title_set = True
-                break
-        
-        if not title_set and table_slide.shapes.title:
-            table_slide.shapes.title.text = "Technical Specifications Matrix"
-            
-        for shape in table_slide.shapes:
-            if shape.has_text_frame and "XXX" in shape.text_frame.text:
+            elif shape.has_text_frame and "XXX" in shape.text_frame.text:
                 shape.text_frame.text = ""
 
-        rows = len(df_battle.columns)
-        cols = len(df_battle) + 1
-        
-        left = Inches(0.5)
-        top = Inches(1.8)
-        width = Inches(9.0)
-        height = Inches(0.4 * rows) 
-        
+        if table_slide.shapes.title and "Technical" not in table_slide.shapes.title.text:
+            table_slide.shapes.title.text = "Technical Specifications Matrix"
+
+        rows, cols = len(df_battle.columns), len(df_battle) + 1
+        left, top, width, height = Inches(0.5), Inches(1.8), Inches(9.0), Inches(0.4 * rows) 
         shape = table_slide.shapes.add_table(rows, cols, left, top, width, height)
         table = shape.table
         
         table.columns[0].width = Inches(2.5)
-        for i in range(1, cols):
-            table.columns[i].width = Inches(6.5 / (cols - 1))
+        for i in range(1, cols): table.columns[i].width = Inches(6.5 / (cols - 1))
             
         for row_idx, col_name in enumerate(df_battle.columns):
             cell = table.cell(row_idx, 0)
@@ -340,86 +321,137 @@ def create_pitch_deck(baseline_name, competitor_names, ai_text, df_battle):
                 cell.text = val
                 cell.text_frame.paragraphs[0].font.size = Pt(11)
                 cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-                if r_idx == 0: 
-                    cell.text_frame.paragraphs[0].font.bold = True
-                    
-    except Exception as e:
-        print(f"Table Slide Error: {e}")
+                if r_idx == 0: cell.text_frame.paragraphs[0].font.bold = True
+    except: pass
 
-    # --- FOLIE 2: AI ANALYSIS ---
+    # AI Analysis Slide
     if ai_text:
         try:
-            if len(prs.slides) > 2:
-                slide3 = prs.slides[2]
-            else:
-                content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
-                slide3 = prs.slides.add_slide(content_layout)
-                
-            tf_title = None
-            tf_content = None
+            if len(prs.slides) > 2: slide3 = prs.slides[2]
+            else: slide3 = prs.slides.add_slide(prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0])
             
+            tf_content = None
             for shape in slide3.shapes:
                 if shape.has_text_frame:
-                    text = shape.text_frame.text
-                    if "XXXX" in text:
-                        shape.text_frame.text = text.replace("XXXX", "Competitive Analysis & Pitch")
-                        tf_title = shape.text_frame
-                    elif "XXX" in text:
-                        tf_content = shape.text_frame
+                    if "XXXX" in shape.text_frame.text: shape.text_frame.text = shape.text_frame.text.replace("XXXX", "Competitive Analysis & Pitch")
+                    elif "XXX" in shape.text_frame.text: tf_content = shape.text_frame
             
-            if not tf_title or not tf_content:
+            if not tf_content:
                 text_shapes_3 = [s for s in slide3.shapes if s.has_text_frame]
                 text_shapes_3.sort(key=lambda s: s.width * s.height if s.width and s.height else 0, reverse=True)
-                if len(text_shapes_3) > 0 and not tf_content:
-                    tf_content = text_shapes_3[0].text_frame
-                if len(text_shapes_3) > 1 and not tf_title:
-                    tf_title = text_shapes_3[1].text_frame
-                    
-            if tf_title and "XXXX" in tf_title.text:
-                tf_title.text = "Competitive Analysis & Pitch"
+                if len(text_shapes_3) > 0: tf_content = text_shapes_3[0].text_frame
+                
+            if slide3.shapes.title and "Competitive" not in slide3.shapes.title.text: slide3.shapes.title.text = "Competitive Analysis & Pitch"
                 
             if tf_content:
                 tf_content.text = "" 
                 tf_content.word_wrap = True
                 
-                try:
-                    tf_content.auto_size = 1 
-                except:
-                    pass
-                
                 lines = ai_text.split('\n')
                 first_paragraph = True
-                
                 for line in lines:
                     line = line.strip()
-                    if not line or line.startswith('|') or line.startswith('---') or line.startswith('='):
-                        continue
-                        
+                    if not line or line.startswith('|') or line.startswith('---') or line.startswith('='): continue
                     clean_line = line.replace('**', '').replace('### ', '').replace('## ', '')
-                    
-                    if first_paragraph:
-                        p = tf_content.paragraphs[0]
-                        first_paragraph = False
-                    else:
-                        p = tf_content.add_paragraph()
-                        
+                    p = tf_content.paragraphs[0] if first_paragraph else tf_content.add_paragraph()
+                    first_paragraph = False
                     if clean_line.startswith('* ') or clean_line.startswith('- '):
                         p.text = clean_line[2:]
-                        p.level = 1 
-                        p.font.size = Pt(14)
+                        p.level, p.font.size = 1, Pt(14)
                     else:
                         p.text = clean_line
-                        p.level = 0
-                        p.font.bold = True
-                        p.font.size = Pt(16)
-                        
-        except Exception as e:
-            print(f"PPT Error: {e}")
+                        p.level, p.font.bold, p.font.size = 0, True, Pt(16)
+        except: pass
             
     ppt_stream = io.BytesIO()
     prs.save(ppt_stream)
     ppt_stream.seek(0)
     return ppt_stream
+
+# --- PPT GENERATOR FOR VIDEO INTELLIGENCE ---
+def create_video_intel_deck(target_machine, videos_data, exec_summary):
+    template_path = get_template_path()
+    if not template_path: prs = Presentation() 
+    else:
+        try: prs = Presentation(template_path)
+        except: prs = Presentation()
+
+    content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
+
+    # Clean existing dummy slides if using template
+    while len(prs.slides) > 0:
+        r_id = prs.slides._sldIdLst[0].rId
+        prs.part.drop_rel(r_id)
+        del prs.slides._sldIdLst[0]
+
+    # Slide 1: Title
+    title_slide_layout = prs.slide_layouts[0]
+    slide = prs.slides.add_slide(title_slide_layout)
+    if slide.shapes.title: slide.shapes.title.text = "Video Intelligence Report"
+    if len(slide.placeholders) > 1: slide.placeholders[1].text = f"Target Machine: {target_machine.upper()}\nGlobal Operator Sentiment"
+
+    # Slides 2-6: Individual Videos
+    for vid in videos_data:
+        slide = prs.slides.add_slide(content_layout)
+        if slide.shapes.title: slide.shapes.title.text = vid['title'][:50] + "..."
+        
+        # Find content text frame
+        tf = None
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape != slide.shapes.title:
+                tf = shape.text_frame
+                break
+        if not tf:
+            left = top = Inches(1)
+            width, height = Inches(8), Inches(5)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+
+        tf.text = f"Video Link: {vid['link']}\n\n"
+        p = tf.paragraphs[0]
+        p.font.size = Pt(14)
+        p.font.bold = True
+        
+        # Add AI Summary Points
+        lines = vid['summary'].split('\n')
+        for line in lines:
+            line = line.strip().replace('**', '')
+            if line:
+                p = tf.add_paragraph()
+                p.text = line
+                p.level = 1 if line.startswith('*') or line.startswith('-') else 0
+                p.font.size = Pt(16)
+
+    # Final Slide: Executive Summary
+    slide = prs.slides.add_slide(content_layout)
+    if slide.shapes.title: slide.shapes.title.text = "Executive Summary & Strategy"
+    
+    tf = None
+    for shape in slide.shapes:
+        if shape.has_text_frame and shape != slide.shapes.title:
+            tf = shape.text_frame
+            break
+    if not tf:
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(5))
+        tf = txBox.text_frame
+
+    tf.text = ""
+    lines = exec_summary.split('\n')
+    for line in lines:
+        line = line.strip().replace('**', '')
+        if line:
+            p = tf.add_paragraph()
+            p.text = line
+            p.level = 1 if line.startswith('*') or line.startswith('-') else 0
+            p.font.size = Pt(16)
+            if "The Good" in line or "The Bad" in line or "SANY" in line:
+                p.font.bold = True
+
+    ppt_stream = io.BytesIO()
+    prs.save(ppt_stream)
+    ppt_stream.seek(0)
+    return ppt_stream
+
 
 # --- DYNAMIC STATE VARIABLES ---
 if "custom_params" not in st.session_state:
@@ -427,12 +459,14 @@ if "custom_params" not in st.session_state:
     for mt in MACHINE_TYPES:
         st.session_state.custom_params[mt] = []
 
-if "ai_analysis_cache" not in st.session_state:
-    st.session_state.ai_analysis_cache = ""
+if "ai_analysis_cache" not in st.session_state: st.session_state.ai_analysis_cache = ""
+if "video_intel_videos" not in st.session_state: st.session_state.video_intel_videos = []
+if "video_intel_summary" not in st.session_state: st.session_state.video_intel_summary = ""
+if "video_intel_machine" not in st.session_state: st.session_state.video_intel_machine = ""
 
 # --- SIDEBAR ---
 st.sidebar.markdown("### NAVIGATION")
-app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar"])
+app_mode = st.sidebar.radio("Navigate to:", ["Scanner", "Database", "Product Comparison", "News Radar", "Video Intelligence"])
 st.sidebar.markdown("---")
 
 if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
@@ -450,13 +484,10 @@ if api_key:
         available_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if available_models:
             default_idx = 0
-            if "gemini-3.1-flash-lite" in available_models:
-                default_idx = available_models.index("gemini-3.1-flash-lite")
-            elif any("flash-lite" in m for m in available_models):
-                default_idx = next(i for i, m in enumerate(available_models) if "flash-lite" in m)
-                
+            if "gemini-3.1-flash-lite" in available_models: default_idx = available_models.index("gemini-3.1-flash-lite")
+            elif any("flash-lite" in m for m in available_models): default_idx = next(i for i, m in enumerate(available_models) if "flash-lite" in m)
             selected_model_name = st.sidebar.selectbox("Active Model:", available_models, index=default_idx)
-    except Exception:
+    except:
         selected_model_name = st.sidebar.text_input("Manual Model Input:", value="gemini-3.1-flash-lite")
 
 st.sidebar.markdown("---")
@@ -464,8 +495,6 @@ st.sidebar.markdown("---")
 # ================= VIEW 1: SCANNER =================
 if app_mode == "Scanner":
     st.markdown("### UPLOAD DATASHEETS")
-    
-    st.markdown("#### SELECT MACHINE TYPE")
     selected_machine_type = st.radio("Configure AI Brain For:", MACHINE_TYPES, horizontal=True)
     
     current_categories = CATEGORIES[selected_machine_type]
@@ -473,28 +502,23 @@ if app_mode == "Scanner":
     all_available_params = current_base_params + st.session_state.custom_params[selected_machine_type]
 
     with st.expander(f"CONFIGURE PARAMS ({selected_machine_type})", expanded=False):
-        st.error(f"The system recognizes {len(all_available_params)} parameters for {selected_machine_type}. The scanner automatically extracts all known metrics.")
+        st.error(f"The system recognizes {len(all_available_params)} parameters for {selected_machine_type}.")
         new_param_input = st.text_input("Add custom parameter:", placeholder="e.g., Track width (mm)", key=f"new_param_{selected_machine_type}")
         if st.button("Save Parameter", use_container_width=True):
-            if new_param_input:
-                clean_param = new_param_input.strip()
-                if clean_param not in all_available_params:
-                    st.session_state.custom_params[selected_machine_type].append(clean_param)
-                    st.error(f"'{clean_param}' added to {selected_machine_type}.")
-                    st.rerun()
+            if new_param_input and new_param_input.strip() not in all_available_params:
+                st.session_state.custom_params[selected_machine_type].append(new_param_input.strip())
+                st.rerun()
     
     uploaded_files = st.file_uploader("Drop brochures or datasheets here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
     machine_configs = {}
     if uploaded_files:
-        if not api_key:
-            st.error("ACCESS DENIED: Please provide a valid API Key.")
+        if not api_key: st.error("ACCESS DENIED: Please provide a valid API Key.")
         else:
             for file in uploaded_files:
                 sub_col1, sub_col2 = st.columns(2)
                 with sub_col1:
-                    default_name = file.name.rsplit('.', 1)[0]
-                    m_name = st.text_input(f"Machine Name:", value=default_name, key=f"name_{file.name}")
+                    m_name = st.text_input(f"Machine Name:", value=file.name.rsplit('.', 1)[0], key=f"name_{file.name}")
                 with sub_col2:
                     m_cat = st.selectbox(f"Baseline Class ({selected_machine_type}):", options=current_categories, key=f"cat_{file.name}")
                 machine_configs[file.name] = {"name": m_name, "category": m_cat}
@@ -503,11 +527,10 @@ if app_mode == "Scanner":
         if uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
             for index, file in enumerate(uploaded_files):
                 current_machine = machine_configs[file.name]["name"]
                 current_category = machine_configs[file.name]["category"]
-                status_text.text(f"Scanning '{current_machine}' as {selected_machine_type}...")
+                status_text.text(f"Scanning '{current_machine}'...")
                 
                 file.seek(0)
                 file_part = {"mime_type": file.type, "data": file.read()}
@@ -516,20 +539,14 @@ if app_mode == "Scanner":
                 try:
                     model = genai.GenerativeModel(selected_model_name)
                     response = model.generate_content(contents=[file_part, prompt], generation_config={"response_mime_type": "application/json"})
-                    
                     raw_text = response.text.strip()
-                    
-                    # SAFE FIX GEGEN DEN ZEILENUMBRUCH-BUG:
                     marker = "`" * 3
                     if raw_text.startswith(marker + "json"): raw_text = raw_text[7:]
                     elif raw_text.startswith(marker): raw_text = raw_text[3:]
                     if raw_text.endswith(marker): raw_text = raw_text[:-3]
                         
                     extracted_json = json.loads(raw_text.strip())
-                    extracted_json["Machine"] = current_machine
-                    extracted_json["Category"] = current_category
-                    extracted_json["Machine Type"] = selected_machine_type
-                    
+                    extracted_json["Machine"], extracted_json["Category"], extracted_json["Machine Type"] = current_machine, current_category, selected_machine_type
                     db[f"{current_machine} ({current_category})"] = extracted_json
                     save_db(db)
                 except Exception as e:
@@ -544,27 +561,18 @@ if app_mode == "Scanner":
 # ================= VIEW 2: DATABASE =================
 elif app_mode == "Database":
     st.markdown("### MACHINE DATABASE (LIVE EDITOR)")
-    st.error("You can now directly edit cells in the table below to manually correct AI extraction errors.")
-    
     if db:
         col_filter_type, col_filter_cat, col_delete = st.columns(3)
-        
         all_types = list(set([v.get("Machine Type", "Tracked Excavator") for v in db.values()]))
-        with col_filter_type:
-            type_filter = st.selectbox("Filter by Machine Type:", ["All"] + all_types)
-            
+        with col_filter_type: type_filter = st.selectbox("Filter by Machine Type:", ["All"] + all_types)
         with col_filter_cat:
             cat_options = ["All"]
-            if type_filter != "All":
-                cat_options += CATEGORIES.get(type_filter, [])
+            if type_filter != "All": cat_options += CATEGORIES.get(type_filter, [])
             else:
-                for cats in CATEGORIES.values():
-                    cat_options += cats
+                for cats in CATEGORIES.values(): cat_options += cats
             cat_filter = st.selectbox("Filter by SANY Class:", cat_options)
-            
         with col_delete:
-            delete_options = ["None"] + list(db.keys())
-            to_delete = st.selectbox("Remove faulty record:", options=delete_options)
+            to_delete = st.selectbox("Remove faulty record:", options=["None"] + list(db.keys()))
             if st.button("DELETE RECORD", use_container_width=True):
                 if to_delete != "None":
                     del db[to_delete]
@@ -573,96 +581,57 @@ elif app_mode == "Database":
                     
         st.markdown("---")
         df_lib = pd.DataFrame(list(db.values()))
-        if 'Category' in df_lib.columns:
-            df_lib = df_lib.rename(columns={'Category': 'Class'})
-        if 'Machine Type' not in df_lib.columns:
-            df_lib['Machine Type'] = "Tracked Excavator"
+        if 'Category' in df_lib.columns: df_lib = df_lib.rename(columns={'Category': 'Class'})
+        if 'Machine Type' not in df_lib.columns: df_lib['Machine Type'] = "Tracked Excavator"
             
         cols = ['Machine', 'Machine Type', 'Class'] + [c for c in df_lib.columns if c not in ['Machine', 'Machine Type', 'Class']]
         df_lib = df_lib[cols]
-        
-        if type_filter != "All":
-            df_lib = df_lib[df_lib['Machine Type'] == type_filter]
-        if cat_filter != "All":
-            df_lib = df_lib[df_lib['Class'] == cat_filter]
+        if type_filter != "All": df_lib = df_lib[df_lib['Machine Type'] == type_filter]
+        if cat_filter != "All": df_lib = df_lib[df_lib['Class'] == cat_filter]
             
-        # Data Editor Integration
         edited_df = st.data_editor(df_lib, use_container_width=True, num_rows="dynamic")
-        
         if st.button("SAVE DATABASE CHANGES", type="primary", use_container_width=True):
             new_db = {}
             for _, row in edited_df.iterrows():
-                # Reconstruct primary key
-                m_name = str(row['Machine'])
-                m_cat = str(row['Class']) if 'Class' in row else str(row.get('Category', ''))
-                new_key = f"{m_name} ({m_cat})"
-                
-                # Convert row back to dictionary
+                new_key = f"{row['Machine']} ({row['Class'] if 'Class' in row else row.get('Category', '')})"
                 row_dict = row.to_dict()
-                if 'Class' in row_dict:
-                    row_dict['Category'] = row_dict.pop('Class')
-                    
-                # Drop null values introduced by dataframe
-                clean_dict = {k: v for k, v in row_dict.items() if pd.notna(v)}
-                new_db[new_key] = clean_dict
-                
+                if 'Class' in row_dict: row_dict['Category'] = row_dict.pop('Class')
+                new_db[new_key] = {k: v for k, v in row_dict.items() if pd.notna(v)}
             save_db(new_db)
-            db.clear()
-            db.update(new_db)
+            db.clear(); db.update(new_db)
             st.error("Database successfully updated and synced!")
             time.sleep(1)
             st.rerun()
         
         st.markdown("---")
         excel_buffer_lib = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer:
-            df_lib.to_excel(writer, index=False)
+        with pd.ExcelWriter(excel_buffer_lib, engine='openpyxl') as writer: df_lib.to_excel(writer, index=False)
         st.download_button("DOWNLOAD DATABASE (.xlsx)", excel_buffer_lib.getvalue(), "Database.xlsx", use_container_width=True)
-    else:
-        st.error("The database is currently empty.")
+    else: st.error("The database is currently empty.")
 
 # ================= VIEW 3: PRODUCT COMPARISON =================
 elif app_mode == "Product Comparison":
     st.markdown("### PRODUCT COMPARISON (THE ARENA)")
-    if not db:
-        st.error("No data available yet.")
+    if not db: st.error("No data available yet.")
     else:
-        st.markdown("#### 1. SELECT ARENA TYPE")
         arena_type = st.radio("Filter Arena By Machine Type:", MACHINE_TYPES, horizontal=True)
-        
         filtered_db_keys = [k for k, v in db.items() if v.get("Machine Type", "Tracked Excavator") == arena_type]
-        
-        if not filtered_db_keys:
-            st.error(f"No machines found for '{arena_type}' in the database.")
+        if not filtered_db_keys: st.error(f"No machines found for '{arena_type}' in the database.")
         else:
             arena_col1, arena_col2 = st.columns(2)
-            with arena_col1:
-                baseline_sel = st.selectbox("Own Product (SANY Baseline):", options=filtered_db_keys)
-            with arena_col2:
-                competitors_sel = st.multiselect("Competitor Models:", options=[k for k in filtered_db_keys if k != baseline_sel])
+            with arena_col1: baseline_sel = st.selectbox("Own Product (SANY Baseline):", options=filtered_db_keys)
+            with arena_col2: competitors_sel = st.multiselect("Competitor Models:", options=[k for k in filtered_db_keys if k != baseline_sel])
                 
             st.markdown("---")
-            st.markdown("### MATCH SETUP")
-            
             all_available_params = PARAMS[arena_type] + st.session_state.custom_params[arena_type]
             
-            if arena_type == "Tracked Excavator":
-                default_params = ["Operating Weight (kg)", "Net Power (kW)", "Max Digging Depth (mm)", "Breakout Force - Bucket (kN)", "AUX 1 Flow (l/min)"]
-            elif arena_type == "Wheeled Excavator":
-                default_params = ["Operating Weight with Blade (kg)", "Net Power (kW)", "Max Travel Speed High (km/h)", "Breakout Force (kN)", "Tail Swing Radius (mm)"]
-            elif arena_type == "Mining Excavator":
-                default_params = ["Operating Weight - Backhoe (kg)", "Gross Power (kW)", "Standard Bucket Capacity - Backhoe (m3)", "Breakout Force (kN)", "Max Digging Depth (mm)"]
-            else:
-                default_params = ["Operating Weight (kg)", "Rated Payload (kg)", "Static Tipping Load - Full Turn (kg)", "Standard Bucket Capacity Heaped (m3)", "Total Cycle Time (s)"]
+            if arena_type == "Tracked Excavator": default_params = ["Operating Weight (kg)", "Net Power (kW)", "Max Digging Depth (mm)", "Breakout Force - Bucket (kN)", "AUX 1 Flow (l/min)"]
+            elif arena_type == "Wheeled Excavator": default_params = ["Operating Weight with Blade (kg)", "Net Power (kW)", "Max Travel Speed High (km/h)", "Breakout Force (kN)", "Tail Swing Radius (mm)"]
+            elif arena_type == "Mining Excavator": default_params = ["Operating Weight - Backhoe (kg)", "Gross Power (kW)", "Standard Bucket Capacity - Backhoe (m3)", "Breakout Force (kN)", "Max Digging Depth (mm)"]
+            else: default_params = ["Operating Weight (kg)", "Rated Payload (kg)", "Static Tipping Load - Full Turn (kg)", "Standard Bucket Capacity Heaped (m3)", "Total Cycle Time (s)"]
                 
             compare_params = st.multiselect("Select parameters for Matrix & AI Analysis:", options=all_available_params, default=[p for p in default_params if p in all_available_params])
-            
-            st.markdown("### AI BIOS SWITCH")
-            ai_persona = st.radio("Select AI Persona:", 
-                                  ["Sales Mode (Punchy, Strategic, ROI & Sales Focus)", 
-                                   "R&D Mode (Technical, Analytical, Engineering & Structure)"])
-            
-            st.markdown("### OUTPUT GENERATION")
+            ai_persona = st.radio("Select AI Persona:", ["Sales Mode (Punchy, Strategic, ROI & Sales Focus)", "R&D Mode (Technical, Analytical, Engineering & Structure)"])
             pwr_charts = st.checkbox("Visual Performance Comparison (Charts in App)")
             pwr_ampel = st.checkbox("Strengths/Weaknesses Profile (For Pitch Deck)")
             pwr_pitch = st.checkbox("Sales/Tech Arguments (For Pitch Deck)")
@@ -671,10 +640,7 @@ elif app_mode == "Product Comparison":
                 if competitors_sel and compare_params:
                     battle_data = [db[baseline_sel]] + [db[k] for k in competitors_sel]
                     df_battle_full = pd.DataFrame(battle_data).drop(columns=['Category', 'Machine Type', 'Class'], errors='ignore')
-                    
-                    cols_to_keep = ['Machine'] + [p for p in compare_params if p in df_battle_full.columns]
-                    df_battle_filtered = df_battle_full[cols_to_keep]
-                    
+                    df_battle_filtered = df_battle_full[['Machine'] + [p for p in compare_params if p in df_battle_full.columns]]
                     st.session_state.current_df_battle = df_battle_filtered
                     
                     st.markdown("---")
@@ -692,12 +658,9 @@ elif app_mode == "Product Comparison":
                                 if chart_data:
                                     chart = alt.Chart(pd.DataFrame(chart_data)).mark_bar().encode(
                                         x=alt.X('Machine', title=None, axis=alt.Axis(labelAngle=-45)),
-                                        y=alt.Y(metric, title=None),
-                                        color=alt.Color('Machine', legend=None),
-                                        tooltip=['Machine', metric]
+                                        y=alt.Y(metric, title=None), color=alt.Color('Machine', legend=None), tooltip=['Machine', metric]
                                     ).properties(height=300, title=metric)
-                                    with chart_cols[col_idx % 2]:
-                                        st.altair_chart(chart, use_container_width=True)
+                                    with chart_cols[col_idx % 2]: st.altair_chart(chart, use_container_width=True)
                                     col_idx += 1
 
                     if pwr_ampel or pwr_pitch:
@@ -706,129 +669,170 @@ elif app_mode == "Product Comparison":
                         with st.spinner("The AI is analyzing the data..."):
                             baseline_name = db[baseline_sel]['Machine']
                             competitor_names = [db[k]['Machine'] for k in competitors_sel]
-                            
-                            if "Sales" in ai_persona:
-                                sys_prompt = f"You are a Senior Sales Strategist evaluating {arena_type} models. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
-                                sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
-                                sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                                sys_prompt += "Write the competitive analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                                if pwr_ampel: sys_prompt += "- Objective assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
-                                if pwr_pitch: sys_prompt += "- Short, punchy sales arguments (Max 1 sentence each) focusing on productivity, ROI, and why the customer should buy SANY.\n"
-                            else:
-                                sys_prompt = f"You are a Senior R&D Engineer evaluating {arena_type} models. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\n\n"
-                                sys_prompt += f"Data: {df_battle_filtered.to_dict(orient='records')}\n\n"
-                                sys_prompt += "CRITICAL: NEVER USE MARKDOWN TABLES! NO '|' SYMBOLS. DO NOT DRAW TABLES.\n"
-                                sys_prompt += "Write the technical analysis strictly as plain text paragraphs and short bullet points starting with '*'. Keep the text concise to fit on a presentation slide.\n"
-                                if pwr_ampel: sys_prompt += "- Objective technical assessment (Use only text, no emojis if possible, outline Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
-                                if pwr_pitch: sys_prompt += "- Deep dive into engineering tradeoffs, mechanical advantages, hydraulic efficiency, and structural integrity. Use highly technical terminology (Max 1 sentence each).\n"
-                                
+                            sys_prompt = f"You are a {'Senior Sales Strategist' if 'Sales' in ai_persona else 'Senior R&D Engineer'} evaluating {arena_type} models. English only. Baseline: '{baseline_name}'. Competitors: {', '.join(competitor_names)}.\nData: {df_battle_filtered.to_dict(orient='records')}\nCRITICAL: NEVER USE MARKDOWN TABLES! Write plain text paragraphs and short bullet points starting with '*'.\n"
+                            if pwr_ampel: sys_prompt += "- Objective assessment (Superior, Tie, Competitor superior) formatted as SHORT text bullets.\n"
+                            if pwr_pitch: sys_prompt += "- Short, punchy arguments (Max 1 sentence each).\n"
                             try:
                                 model = genai.GenerativeModel(selected_model_name)
                                 response = model.generate_content(sys_prompt)
                                 st.session_state.ai_analysis_cache = response.text
                                 st.markdown(response.text)
-                            except Exception as e:
-                                st.error(f"AI Analysis failed: {e}")
+                            except Exception as e: st.error(f"AI Analysis failed: {e}")
 
-            # --- PPT EXPORT BUTTON ---
             if st.session_state.get("ai_analysis_cache") and competitors_sel and "current_df_battle" in st.session_state:
                 st.markdown("---")
-                st.markdown("### EXPORT PITCH DECK")
-                
                 baseline_name = db[baseline_sel]['Machine']
-                competitor_names = [db[k]['Machine'] for k in competitors_sel]
-                
-                ppt_file = create_pitch_deck(baseline_name, competitor_names, st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
-                
-                st.download_button(
-                    label="DOWNLOAD PITCH DECK (.pptx)",
-                    data=ppt_file.getvalue(),
-                    file_name=f"SANY_Pitch_{baseline_name}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True,
-                    type="primary"
-                )
+                ppt_file = create_pitch_deck(baseline_name, [db[k]['Machine'] for k in competitors_sel], st.session_state.ai_analysis_cache, st.session_state.current_df_battle)
+                st.download_button("DOWNLOAD PITCH DECK (.pptx)", data=ppt_file.getvalue(), file_name=f"SANY_Pitch_{baseline_name}.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation", use_container_width=True, type="primary")
 
 # ================= VIEW 4: NEWS RADAR =================
 elif app_mode == "News Radar":
     st.markdown("### 📡 OEM NEWS RADAR")
-    st.error("Live-Scan of global press releases and industry news from top competitors.")
-    
-    oem_list = [
-        "Caterpillar", "Komatsu", "Volvo Construction Equipment", 
-        "Liebherr", "Develon", "Yanmar", "Kubota", "Hitachi Construction Machinery"
-    ]
-    
+    oem_list = ["Caterpillar", "Komatsu", "Volvo Construction Equipment", "Liebherr", "Develon", "Yanmar", "Kubota", "Hitachi Construction Machinery"]
     col1, col2 = st.columns([2, 1])
-    with col1:
-        # HIER: "All Competitors" ganz oben in der Liste als Option hinzugefügt
-        selected_oem = st.selectbox("Target OEM:", ["All Competitors"] + oem_list)
-    with col2:
-        search_focus = st.selectbox("Focus Area:", ["Excavator", "Wheel Loader", "Corporate / Tech"])
+    with col1: selected_oem = st.selectbox("Target OEM:", ["All Competitors"] + oem_list)
+    with col2: search_focus = st.selectbox("Focus Area:", ["Excavator", "Wheel Loader", "Corporate / Tech"])
         
     button_text = "INITIATE RADAR SWEEP FOR ALL" if selected_oem == "All Competitors" else f"INITIATE RADAR SWEEP FOR {selected_oem.upper()}"
-    
     if st.button(button_text, type="primary", use_container_width=True):
-        if not api_key:
-            st.error("ACCESS DENIED: Please provide a valid API Key to use the AI Briefing.")
+        if not api_key: st.error("ACCESS DENIED: Please provide a valid API Key to use the AI Briefing.")
         else:
             with st.spinner("Intercepting global feeds and generating AI summary..."):
-                
-                # Smart Search Query Setup depending on selection
-                if selected_oem == "All Competitors":
-                    oem_query_part = "(" + " OR ".join([f'"{o}"' for o in oem_list]) + ")"
-                else:
-                    oem_query_part = f'"{selected_oem}"'
-
-                if search_focus == "Corporate / Tech":
-                    query = f'{oem_query_part} (equipment OR machinery) (launch OR technology OR "press release")'
-                else:
-                    query = f'{oem_query_part} "{search_focus}" (launch OR reveal OR "press release" OR new)'
-                    
-                query_encoded = urllib.parse.quote(query)
-                rss_url = f"https://news.google.com/rss/search?q={query_encoded}&hl=en-US&gl=US&ceid=US:en"
-                
+                oem_query_part = "(" + " OR ".join([f'"{o}"' for o in oem_list]) + ")" if selected_oem == "All Competitors" else f'"{selected_oem}"'
+                query = f'{oem_query_part} (equipment OR machinery) (launch OR technology OR "press release")' if search_focus == "Corporate / Tech" else f'{oem_query_part} "{search_focus}" (launch OR reveal OR "press release" OR new)'
                 try:
-                    feed = feedparser.parse(rss_url)
-                    
-                    if not feed.entries:
-                        st.error(f"No recent high-impact news found for {selected_oem} in this category.")
+                    feed = feedparser.parse(f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en")
+                    if not feed.entries: st.error(f"No recent high-impact news found.")
                     else:
                         news_text = ""
                         st.markdown("---")
-                        
-                        # Mehr Suchergebnisse anzeigen, wenn nach allen gesucht wird
                         result_limit = 10 if selected_oem == "All Competitors" else 5
                         st.markdown(f"#### INTERCEPTED SIGNALS (TOP {result_limit})")
-                        
                         for entry in feed.entries[:result_limit]:
                             st.markdown(f"**[{entry.title}]({entry.link})**")
-                            pub_date = entry.published if hasattr(entry, 'published') else "Recent"
-                            st.caption(f"Broadcast Date: {pub_date}")
+                            st.caption(f"Broadcast Date: {entry.published if hasattr(entry, 'published') else 'Recent'}")
                             news_text += f"- {entry.title}\n"
                         
-                        # --- AI EXECUTIVE SUMMARY ---
                         st.markdown("---")
                         st.markdown("#### 🧠 AI STRATEGY BRIEFING")
-                        
                         target_text = "our top competitors in the global market" if selected_oem == "All Competitors" else f"our competitor {selected_oem}"
-                        
-                        sys_prompt = f"""
-                        You are a Senior Market Intelligence Analyst for SANY Europe. 
-                        Analyze these recent headlines about {target_text}:
-                        {news_text}
-                        
-                        Provide a punchy, professional 3-sentence executive summary in English. 
-                        Highlight any potential strategic threats, market trends, or product advancements that SANY sales teams need to watch out for.
-                        No markdown tables, just plain text.
-                        """
-                        
+                        sys_prompt = f"You are a Senior Market Intelligence Analyst for SANY Europe. Analyze these recent headlines about {target_text}:\n{news_text}\nProvide a punchy, professional 3-sentence executive summary in English. Highlight any potential strategic threats, market trends, or product advancements that SANY sales teams need to watch out for. No markdown tables, just plain text."
                         try:
                             model = genai.GenerativeModel(selected_model_name)
-                            ai_briefing = model.generate_content(sys_prompt)
-                            st.markdown(ai_briefing.text)
-                        except Exception as e:
-                            st.error(f"AI Briefing failed: {e}")
+                            st.markdown(model.generate_content(sys_prompt).text)
+                        except Exception as e: st.error(f"AI Briefing failed: {e}")
+                except Exception as e: st.error(f"Radar sweep failed. Signal lost: {e}")
+
+# ================= VIEW 5: VIDEO INTELLIGENCE =================
+elif app_mode == "Video Intelligence":
+    st.markdown("### 🎬 VIDEO INTELLIGENCE (OPERATOR SENTIMENT)")
+    st.error("Extract unfiltered operator opinions from YouTube. The AI pulls transcripts from the top 5 videos and auto-generates a presentation slide deck.")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        target_machine = st.text_input("Target Machine / Competitor (e.g., CAT 320, Liebherr R 920):", placeholder="Enter machine model...")
+    with col2:
+        region_filter = st.selectbox("Region / Language Focus:", [
+            "World Wide (English)", "European Market (Mixed)", "Germany (German)", "France (French)", "Italy (Italian)"
+        ])
+
+    if st.button("GENERATE VIDEO PPT DECK", type="primary", use_container_width=True):
+        if not api_key:
+            st.error("ACCESS DENIED: Please provide a valid API Key.")
+        elif not target_machine:
+            st.warning("Please enter a target machine to scan.")
+        else:
+            status_placeholder = st.empty()
+            progress_bar = st.progress(0)
+            
+            # Setup search terms based on region
+            lang_query = "review"
+            if "German" in region_filter: lang_query = "testbericht OR erfahrungen"
+            elif "French" in region_filter: lang_query = "avis OR essai"
+            elif "Italian" in region_filter: lang_query = "recensione OR prova"
+            elif "European" in region_filter: lang_query = "walkaround"
+
+            try:
+                status_placeholder.info(f"Phase 1: Searching YouTube for top 5 videos on '{target_machine}'...")
+                videosSearch = VideosSearch(f"{target_machine} {lang_query} excavator", limit = 5)
+                results = videosSearch.result()['result']
+                
+                if not results:
+                    st.error("No videos found for this machine.")
+                else:
+                    model = genai.GenerativeModel(selected_model_name)
+                    videos_data = []
+                    full_transcripts_for_exec = ""
+                    
+                    for idx, vid in enumerate(results):
+                        status_placeholder.info(f"Phase 2: Extracting and summarizing transcript for Video {idx+1}/5...")
+                        vid_id = vid['id']
+                        title = vid['title']
+                        link = vid['link']
+                        
+                        try:
+                            # Versuche Transkript zu laden (Prio: En, De, Fr, It, Auto-Gen)
+                            transcript_list = YouTubeTranscriptApi.get_transcript(vid_id, languages=['en', 'de', 'fr', 'it', 'es'])
+                            transcript_text = " ".join([t['text'] for t in transcript_list])
                             
-                except Exception as e:
-                    st.error(f"Radar sweep failed. Signal lost: {e}")
+                            # AI fasst dieses Video für seine einzelne Folie zusammen
+                            prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. No markdown tables. Transcript: {transcript_text[:8000]}"
+                            vid_summary = model.generate_content(prompt).text
+                            full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
+                            
+                        except Exception as e:
+                            # Wenn Youtuber keine Untertitel erlaubt hat
+                            vid_summary = "* AI Note: No closed captions available for this video.\n* Recommend manual review by sales rep."
+                            
+                        videos_data.append({'title': title, 'link': link, 'summary': vid_summary})
+                        progress_bar.progress((idx + 1) / 6) # 6 steps total (5 videos + 1 exec summary)
+
+                    # --- Executive Summary generieren ---
+                    status_placeholder.info("Phase 3: Generating Global Executive Summary...")
+                    exec_prompt = f"""
+                    You are a Market Intelligence Analyst for SANY Europe. 
+                    Based on these 5 video summaries regarding the {target_machine}, create an executive summary.
+                    
+                    {full_transcripts_for_exec}
+                    
+                    Format exactly with these headers (English only, bullet points):
+                    * Operator Praises (The Good):
+                    * Operator Complaints (The Bad):
+                    * SANY Sales Counter-Argument: (1 punchy sentence how a SANY rep can use these weaknesses to sell a SANY)
+                    """
+                    exec_summary_text = model.generate_content(exec_prompt).text
+                    progress_bar.progress(1.0)
+                    
+                    # --- Save to session state so user can download ---
+                    st.session_state.video_intel_videos = videos_data
+                    st.session_state.video_intel_summary = exec_summary_text
+                    st.session_state.video_intel_machine = target_machine
+                    
+                    status_placeholder.success("✅ Analysis Complete! Pitch Deck is ready.")
+
+            except Exception as e:
+                st.error(f"Process failed: {e}")
+
+    # Wenn der Report im Cache ist, biete Download und Preview an
+    if st.session_state.get("video_intel_summary"):
+        st.markdown("---")
+        st.markdown("#### 🧠 AI EXECUTIVE SUMMARY (PREVIEW)")
+        st.markdown(st.session_state.video_intel_summary)
+        
+        st.markdown("---")
+        st.markdown("#### 📥 DOWNLOAD REPORT")
+        
+        ppt_file = create_video_intel_deck(
+            st.session_state.video_intel_machine, 
+            st.session_state.video_intel_videos, 
+            st.session_state.video_intel_summary
+        )
+        
+        st.download_button(
+            label=f"DOWNLOAD VIDEO INTELLIGENCE DECK (.pptx)",
+            data=ppt_file.getvalue(),
+            file_name=f"SANY_Video_Intel_{st.session_state.video_intel_machine.replace(' ', '_')}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            use_container_width=True,
+            type="primary"
+        )
