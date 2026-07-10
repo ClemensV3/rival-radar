@@ -255,9 +255,13 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
         sp_param = "&sp=EgQIBRAB"  
 
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}{sp_param}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Cookie': 'CONSENT=YES+cb.20230101-11-p0.en+FX+999; SOCS=CAI;' # Bypass Cookie Walls
+    }
     
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        req = urllib.request.Request(url, headers=headers)
         html_content = urllib.request.urlopen(req).read().decode('utf-8')
         
         video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html_content)
@@ -280,23 +284,27 @@ def custom_youtube_search(query, time_filter="Any Time", limit=5):
 
 def get_custom_transcript(video_id):
     """
-    Bulletproof transcript extractor that bypasses the broken API package.
-    It scrapes the YouTube watch page for the hidden timedtext XML URL.
+    ULTRA BULLETPROOF Scraper.
+    Bypasses Cookie-Walls and handles escaped JSON slashes (\/).
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Cookie': 'CONSENT=YES+cb.20230101-11-p0.en+FX+999; SOCS=CAI;' 
+    }
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        req = urllib.request.Request(url, headers=headers)
         html_content = urllib.request.urlopen(req).read().decode('utf-8')
         
-        # Find the timedtext URL (caption track) directly in the source code
-        urls = re.findall(r'"baseUrl":"(https://www.youtube.com/api/timedtext[^"]+)"', html_content)
+        # FIX: Find baseUrl containing 'timedtext', completely ignoring escaped slashes
+        urls = re.findall(r'"baseUrl":"([^"]+timedtext[^"]+)"', html_content)
         
         if urls:
-            # Fix unicode formatting for URL encoding
-            track_url = urls[0].replace('\\u0026', '&')
+            # Clean up the hidden slashes (from \/ to /) and unicode ampersands
+            track_url = urls[0].replace('\\u0026', '&').replace('\\/', '/')
             
             # Fetch the actual XML transcript
-            xml_req = urllib.request.Request(track_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            xml_req = urllib.request.Request(track_url, headers=headers)
             xml_content = urllib.request.urlopen(xml_req).read().decode('utf-8')
             
             # Extract plain text from the <text> tags
@@ -305,7 +313,8 @@ def get_custom_transcript(video_id):
             # Clean up HTML entities (like &#39; or &amp;)
             clean_texts = [html.unescape(t).replace('\n', ' ') for t in texts]
             
-            return " ".join(clean_texts)
+            if clean_texts:
+                return " ".join(clean_texts)
     except Exception as e:
         print(f"Custom transcript extraction error for {video_id}: {e}")
     
@@ -830,11 +839,11 @@ elif app_mode == "Video Intelligence":
                         link = vid['link']
                         
                         try:
-                            # Use custom scraper to bypass library issues
+                            # Use new robust scraper to bypass slashes and cookies
                             transcript_text = get_custom_transcript(vid_id)
                             
                             if transcript_text:
-                                prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
+                                prompt = f"Summarize this YouTube video transcript about the construction machine '{target_machine}'. Extract exactly 3 to 4 short, punchy bullet points highlighting the operator's opinion (pros/cons). English only. Start each point with '* '. NO MARKDOWN HEADERS. Transcript: {transcript_text[:8000]}"
                                 vid_summary = model.generate_content(prompt).text
                                 full_transcripts_for_exec += f"\n\nVideo: {title}\nSummary: {vid_summary}"
                             else:
