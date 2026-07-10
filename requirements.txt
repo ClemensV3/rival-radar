@@ -7,3 +7,5 @@ altair
 PyGithub
 python-pptx
 feedparser
+youtube-search-python
+youtube-transcript-api
